@@ -51,7 +51,7 @@ cp .env.example .env
 | 环境 | `YOUHUO_BASE_URL` |
 |:---|:---|
 | 测试 / 本地 | `https://hopped-gateway-service-sops-test.hopped.com.cn` |
-| 生产 | `https://hopped-gateway-service.hopped.com.cn` |
+| 生产 | `https://hopped-gateway-service-sops.hopped.com.cn` |
 
 业务路径（`hopped-applet-service/api/` 等）由代码自动拼接，无需单独配置。
 

@@ -62,17 +62,14 @@ Skill 源码：`skills/job-seeker/`（安装见 [skills/README.md](https://githu
 
 | 环境 | `YOUHUO_BASE_URL` |
 |:---|:---|
-| **生产（广场上架）** | `https://hopped-gateway-service.hopped.com.cn` |
+| **生产（广场上架）** | `https://hopped-gateway-service-sops.hopped.com.cn` |
 | **测试 / 本地开发** | `https://hopped-gateway-service-sops-test.hopped.com.cn` |
 
 实际请求前缀示例（代码生成，无需配置）：
 
 ```
-https://hopped-gateway-service.hopped.com.cn/hopped-applet-service/api/
+https://hopped-gateway-service-sops.hopped.com.cn/hopped-applet-service/api/
 ```
-
-> 正式域名上线前请与有活后端确认。
-
 ## 本地安装（stdio）
 
 ```json
@@ -107,7 +104,7 @@ docker build -f marketplace/youhuo-c-api/Dockerfile -t youhuo-c-api-mcp:1.0.0 .
 ### 云托管环境变量（生产示例）
 
 ```env
-YOUHUO_BASE_URL=https://hopped-gateway-service.hopped.com.cn
+YOUHUO_BASE_URL=https://hopped-gateway-service-sops.hopped.com.cn
 ```
 
 **请勿在镜像内写死测试环境域名**；由云托管控制台注入 `YOUHUO_BASE_URL`。

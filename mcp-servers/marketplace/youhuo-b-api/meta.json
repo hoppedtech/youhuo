@@ -12,6 +12,6 @@
   "deployMode": "hosted",
   "logo": [],
   "env_params": {
-    "YOUHUO_BASE_URL": "有活 API 网关域名。切换生产/测试只需改此项，例如生产 https://hopped-gateway-service.hopped.com.cn ，测试 https://hopped-gateway-service-sops-test.hopped.com.cn （hopped-applet-service、hopped-miniprogram-web、hopped-platform-service 路径由代码自动拼接）"
+    "YOUHUO_BASE_URL": "有活 API 网关域名。切换生产/测试只需改此项，例如生产 https://hopped-gateway-service-sops.hopped.com.cn ，测试 https://hopped-gateway-service-sops-test.hopped.com.cn （hopped-applet-service、hopped-miniprogram-web、hopped-platform-service 路径由代码自动拼接）"
   }
 }

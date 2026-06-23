@@ -51,7 +51,7 @@ def _gateway_env_raw() -> str | None:
 
 
 def gateway_url() -> str:
-    """有活 API 网关根地址，如 https://hopped-gateway-service.hopped.com.cn"""
+    """有活 API 网关根地址，如 https://hopped-gateway-service-sops.hopped.com.cn"""
     raw = _gateway_env_raw()
     if not raw:
         return _DEFAULT_TEST_GATEWAY
