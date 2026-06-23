@@ -1,6 +1,6 @@
 # 有活 MCP（youhuo）
 
-[有活](https://www.hopped.com.cn) 灵活用工平台的 **Model Context Protocol (MCP)** 实现，让 AI 助手（Cursor、CodeBuddy 等）帮用户完成招工、找活、报名、排班与结算。
+[有活](https://www.hopped.com.cn) 零活用工平台的 **Model Context Protocol (MCP)** 实现，让 AI 助手（Cursor、CodeBuddy 等）帮用户完成招工、找活、报名、排班与结算。
 
 本仓库包含 **B 端招工** 与 **C 端找活** 两个 MCP Server，以及配套的 Agent Skills。
 
