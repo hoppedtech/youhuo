@@ -1,0 +1,17 @@
+{
+  "name": "youhuo-c-api",
+  "title": "有活 · C端找活 MCP",
+  "description": "有活平台 C 端（找活方）MCP Server：微信扫码授权、岗位标题搜索（GetSearchList）、智能推荐、报名接单、订单与余额查询。每用户独立 Hosted URL，会话隔离。推荐搭配 job-seeker Skill。",
+  "author": {
+    "name": "有活团队"
+  },
+  "gitUrl": "https://github.com/hoppedtech/youhuo/tree/main/mcp-servers/marketplace/youhuo-c-api",
+  "version": "1.0.0",
+  "tags": ["灵活用工", "零工求职", "招聘", "小时工", "社区 MCP"],
+  "port": 80,
+  "deployMode": "hosted",
+  "logo": [],
+  "env_params": {
+    "YOUHUO_BASE_URL": "有活 API 网关域名。切换生产/测试只需改此项，例如生产 https://hopped-gateway-service.hopped.com.cn ，测试 https://hopped-gateway-service-sops-test.hopped.com.cn （业务路径 hopped-applet-service/api/ 由代码自动拼接）"
+  }
+}

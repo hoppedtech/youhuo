@@ -1,0 +1,20 @@
+{
+  "mcpServers": {
+    "youhuo-b-api": {
+      "command": "python",
+      "args": ["youhuo-b-api/server.py"],
+      "cwd": "${workspaceFolder}/mcp-servers",
+      "env": {
+        "YOUHUO_BASE_URL": "https://hopped-gateway-service-sops-test.hopped.com.cn"
+      }
+    },
+    "youhuo-c-api": {
+      "command": "python",
+      "args": ["youhuo-c-api/server.py"],
+      "cwd": "${workspaceFolder}/mcp-servers",
+      "env": {
+        "YOUHUO_BASE_URL": "https://hopped-gateway-service-sops-test.hopped.com.cn"
+      }
+    }
+  }
+}

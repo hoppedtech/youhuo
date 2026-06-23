@@ -1,0 +1,42 @@
+# 授权会话库（含用户 Token，切勿提交）
+**/.workbuddy/
+**/youhuo_auth.db
+**/youhuo_auth.db-*
+
+# 环境与密钥
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+credentials.json
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+dist/
+build/
+.venv/
+venv/
+
+# 本地索引 / 对话缓存
+.specstory/
+
+# 编辑器 / OS
+.idea/
+.vscode/
+*.swp
+.DS_Store
+Thumbs.db
+
+# 临时调试脚本
+mcp-servers/_scan_*.py
+mcp-servers/probe_tmp.py
+
+# 历史打包归档（源码已在 youhuo-*-api/ 目录）
+mcp-servers/*.zip
+
+# Docker / 日志
+*.log
