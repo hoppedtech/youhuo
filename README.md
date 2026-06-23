@@ -22,7 +22,6 @@ youhuo/
 │       ├── job-seeker/              # C 端求职助手
 │       ├── job-planner/             # B 端发岗助手
 │       └── workforce-dispatcher/    # B 端排班调度
-└── docs/                            # 方案与设计文档
 ```
 
 ## 快速开始
@@ -87,16 +86,6 @@ Token 保存在本机 `~/.workbuddy/youhuo_auth.db`（约 2 小时有效）。
 
 完整 Tool 列表见 [`mcp-servers/README.md`](mcp-servers/README.md)。
 
-## 运行测试
-
-```bash
-cd mcp-servers
-python test_youhuo_env.py
-python test_job_search.py
-python test_job_apply.py
-python test_job_entry.py
-```
-
 ## 市场上架
 
 腾讯云 MCP 广场打包与部署说明见 [`mcp-servers/marketplace/README.md`](mcp-servers/marketplace/README.md)。
@@ -104,7 +93,6 @@ python test_job_entry.py
 ## 安全说明
 
 - **切勿提交** `youhuo_auth.db`、`.env` 或任何真实 Token（已配置 `.gitignore`）
-- `inject_token.py` 仅供本地联调，勿在生产或公开场合使用
 - 写操作（`apply_job`、`cancel_apply`、`withdraw_balance` 等）须在获得用户**明确确认**后调用
 - `check_auth_status` 仅返回截断的 `token_preview`，不暴露完整 Token
 

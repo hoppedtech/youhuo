@@ -23,6 +23,12 @@ venv/
 
 # 本地索引 / 对话缓存
 .specstory/
+.cursorindexingignore
+
+# 开发 / 测试（不随仓库发布，本地保留即可）
+mcp-servers/test_*.py
+mcp-servers/inject_token.py
+docs/
 
 # 编辑器 / OS
 .idea/

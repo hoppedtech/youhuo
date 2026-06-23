@@ -91,17 +91,6 @@ python youhuo-c-api/server.py
 | workforce-dispatcher | youhuo-b-api | `.cursor/skills/workforce-dispatcher/SKILL.md` |
 | job-seeker | youhuo-c-api | `.cursor/skills/job-seeker/SKILL.md` |
 
-## 验证脚本
-
-```bash
-python test_b_flow.py
-python test_c_flow.py
-python test_job_planner_flow.py
-python test_workforce_dispatcher_flow.py
-python test_job_seeker_flow.py
-python test_finance_flow.py
-```
-
 ## 环境变量
 
 | 变量 | 说明 |
@@ -119,11 +108,10 @@ CloudBase / 腾讯云 MCP 广场打包见 [`marketplace/README.md`](marketplace/
 
 ## 后端依赖
 
-扫码授权需后端实现 `Login/GetTokenBySession` 及 `minilogin` Redis 缓存（详见方案文档）。
+扫码授权需后端实现 `Login/GetTokenBySession` 及 `minilogin` Redis 缓存。
 
-## 开源发布安全提示
+## 安全提示
 
 - **勿提交** `~/.workbuddy/youhuo_auth.db` 或任何真实 Token（已写入根目录 `.gitignore`）
-- `inject_token.py` 仅供本地联调，不要在公开场合粘贴真实 Token
 - 写操作（`apply_job`、`cancel_apply`、`withdraw_balance`）依赖 AI/Skill 层获得用户明确确认后再调用
-- 生产部署仅配置 `YOUHUO_BASE_URL` 网关域名，参见 `mcp-servers/.env.example`
+- 生产部署仅配置 `YOUHUO_BASE_URL` 网关域名，参见 `.env.example`
