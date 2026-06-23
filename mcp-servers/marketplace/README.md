@@ -62,4 +62,4 @@ Hosted 模式需企业入驻申请：
 
 ## 本地 stdio 调试（不上云）
 
-仍使用项目根目录 `.cursor/mcp.json`，无需本 marketplace 目录。
+使用项目根目录 `.cursor/mcp.json` 配置 MCP；Skill 安装见仓库 `skills/README.md`。

@@ -15,7 +15,7 @@
 |:---|:---|
 | `job-seeker` | C 端求职助手，定义搜索 SOP、报名安全边界 |
 
-Skill 文件路径：`.cursor/skills/job-seeker/SKILL.md`
+Skill 源码：`skills/job-seeker/`（安装见 [skills/README.md](https://github.com/hoppedtech/youhuo/blob/main/skills/README.md)）
 
 ## 核心 Tools（25）
 

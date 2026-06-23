@@ -87,9 +87,11 @@ python youhuo-c-api/server.py
 
 | Skill | MCP Server | 路径 |
 |:---|:---|:---|
-| job-planner | youhuo-b-api | `.cursor/skills/job-planner/SKILL.md` |
-| workforce-dispatcher | youhuo-b-api | `.cursor/skills/workforce-dispatcher/SKILL.md` |
-| job-seeker | youhuo-c-api | `.cursor/skills/job-seeker/SKILL.md` |
+| job-planner | youhuo-b-api | `skills/job-planner/SKILL.md` |
+| workforce-dispatcher | youhuo-b-api | `skills/workforce-dispatcher/SKILL.md` |
+| job-seeker | youhuo-c-api | `skills/job-seeker/SKILL.md` |
+
+安装说明见仓库根目录 [`skills/README.md`](../../skills/README.md)。
 
 ## 环境变量
 

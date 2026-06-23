@@ -17,6 +17,8 @@
 | `job-planner` | B 端招人、发岗位、发众包 |
 | `workforce-dispatcher` | 排班、考勤、筛人、停止招工 |
 
+Skill 源码：`skills/job-planner/`、`skills/workforce-dispatcher/`（安装见 [skills/README.md](https://github.com/hoppedtech/youhuo/blob/main/skills/README.md)）
+
 ## 核心 Tools（31）
 
 | 分类 | Tools |
