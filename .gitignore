@@ -29,7 +29,8 @@ venv/
 mcp-servers/test_*.py
 mcp-servers/inject_token.py
 docs/
-scripts/
+mcp-servers/scripts/
+mcp-servers/marketplace/
 
 # 本地 Skill 链接（源码在 skills/，勿提交副本）
 .cursor/skills/
