@@ -17,7 +17,6 @@ youhuo/
 │   ├── youhuo-b-api/                # B 端统一入口（招工方 role=2）
 │   ├── youhuo-c-api/                # C 端统一入口（找活方 role=1）
 │   ├── tools/                       # 共享工具
-│   ├── marketplace/                 # 腾讯云 MCP 广场上架包
 │   ├── mcp.json                     # MCP 配置示例
 │   └── README.md                    # Tool 清单
 └── .cursor/
@@ -39,6 +38,8 @@ cd youhuo
 cd mcp-servers
 pip install mcp httpx
 ```
+
+C 端若使用简历生成/上传，还需：`pip install fpdf2 cos-python-sdk-v5`
 
 ### 3. 配置环境变量
 
@@ -84,8 +85,6 @@ Copy-Item -Recurse -Force skills\workforce-dispatcher "$skills\workforce-dispatc
 3. 轮询 `check_auth_status` 直至 `authorized`
 4. 后续 Tool 自动携带 Token
 
-Token 保存在本机 `~/.workbuddy/youhuo_auth.db`（约 2 小时有效）。
-
 ## C 端找活（youhuo-c-api）
 
 典型对话流程：
@@ -111,15 +110,10 @@ Token 保存在本机 `~/.workbuddy/youhuo_auth.db`（约 2 小时有效）。
 
 完整 Tool 列表见 [`mcp-servers/README.md`](mcp-servers/README.md)。
 
-## 市场上架
 
-腾讯云 MCP 广场打包与部署说明见 [`mcp-servers/marketplace/README.md`](mcp-servers/marketplace/README.md)。
 
 ## 安全说明
-
-- **切勿提交** `youhuo_auth.db`、`.env` 或任何真实 Token（已配置 `.gitignore`）
 - 写操作（`apply_job`、`cancel_apply` 等）须在获得用户**明确确认**后调用；**提现请引导用户至有活小程序**
-- `check_auth_status` 仅返回截断的 `token_preview`，不暴露完整 Token
 
 ## 许可证
 
@@ -128,6 +122,5 @@ Token 保存在本机 `~/.workbuddy/youhuo_auth.db`（约 2 小时有效）。
 ## 相关链接
 
 - Skill 安装：[`skills/README.md`](skills/README.md)
-- C 端 MCP 文档：[`mcp-servers/marketplace/youhuo-c-api/DOC.md`](mcp-servers/marketplace/youhuo-c-api/DOC.md)
-- B 端 MCP 文档：[`mcp-servers/marketplace/youhuo-b-api/DOC.md`](mcp-servers/marketplace/youhuo-b-api/DOC.md)
+- MCP Tool 清单：[`mcp-servers/README.md`](mcp-servers/README.md)
 - GitHub：https://github.com/hoppedtech/youhuo

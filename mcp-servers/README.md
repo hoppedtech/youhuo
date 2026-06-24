@@ -33,23 +33,23 @@ mcp-servers/
 ├── youhuo-c-api/
 │   ├── server.py               # ★ C 端统一入口
 │   └── internal/               # auth / guard / worker / profile / finance
-├── marketplace/                # 腾讯云 CloudBase 镜像与上架元数据
 ├── mcp.json                    # 本地 stdio 配置
-└── .dockerignore               # 镜像构建排除项
+└── .dockerignore               # 镜像构建排除项（marketplace/ 在本地维护，未纳入 GitHub）
 ```
+
+> `marketplace/`（Dockerfile、`meta.json`、广场 DOC）在 **`.gitignore` 中**，仅维护者本地保留，公开克隆不包含该目录。
 
 ## 快速开始
 
 ```bash
 cd mcp-servers
-pip install -r marketplace/youhuo-b-api/requirements.txt   # B 端
-# 或
-pip install -r marketplace/youhuo-c-api/requirements.txt   # C 端（含 fpdf2、cos-python-sdk-v5）
+pip install mcp httpx
 
 # 启动 B 端
 python youhuo-b-api/server.py
 
-# 启动 C 端
+# 启动 C 端（简历功能需额外依赖）
+pip install fpdf2 cos-python-sdk-v5
 python youhuo-c-api/server.py
 ```
 
@@ -120,9 +120,16 @@ python youhuo-c-api/server.py
 
 默认使用测试环境 `hopped-gateway-service-sops-test.hopped.com.cn`。
 
-## 市场上架
+## 市场上架（本地 marketplace/）
 
-CloudBase / 腾讯云 MCP 广场打包见 [`marketplace/README.md`](marketplace/README.md)。
+CloudBase / 腾讯云 MCP 广场的 Docker 与上架文件在 **`marketplace/`**（已 `.gitignore`，不推送 GitHub）。维护者本地保留该目录后，在 `mcp-servers/` 根目录构建镜像，例如：
+
+```bash
+docker build -f marketplace/youhuo-b-api/Dockerfile -t youhuo-b-api-mcp:1.0.0 .
+docker build -f marketplace/youhuo-c-api/Dockerfile -t youhuo-c-api-mcp:1.0.0 .
+```
+
+详见本地 `marketplace/README.md`（公开仓库克隆者无此文件）。
 
 ## 后端依赖
 
