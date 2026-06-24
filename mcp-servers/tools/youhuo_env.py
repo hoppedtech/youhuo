@@ -78,3 +78,24 @@ def get_token_by_session_url() -> str:
     if explicit:
         return explicit
     return f"{applet_base_url()}Login/GetTokenBySession"
+
+
+def _truthy_env(name: str) -> bool:
+    return os.getenv(name, "").strip().lower() in ("1", "true", "yes", "on")
+
+
+def ensure_gateway_configured() -> None:
+    """云托管镜像启动校验：YOUHUO_REQUIRE_BASE_URL=1 时须配置 YOUHUO_BASE_URL。"""
+    if not _truthy_env("YOUHUO_REQUIRE_BASE_URL"):
+        return
+    raw = _gateway_env_raw()
+    if not raw:
+        raise SystemExit(
+            "YOUHUO_BASE_URL is required when YOUHUO_REQUIRE_BASE_URL is set. "
+            "Example: https://hopped-gateway-service-sops.hopped.com.cn"
+        )
+    if _truthy_env("YOUHUO_REJECT_TEST_GATEWAY") and "sops-test" in raw:
+        raise SystemExit(
+            "Production deployment must not use sops-test gateway. "
+            "Set YOUHUO_BASE_URL to the production gateway."
+        )

@@ -21,11 +21,20 @@ def api_list(result: dict) -> list:
         return data
 
     payload = api_data(result)
-    for key in ("ElementList", "list", "elementList", "jobList"):
+    for key in ("ElementList", "list", "elementList", "jobList", "records"):
         items = payload.get(key)
         if isinstance(items, list):
             return items
     return []
+
+
+def api_records(result: dict) -> list:
+    """B 端 employ API 分页列表（data.records）。"""
+    payload = api_data(result)
+    records = payload.get("records")
+    if isinstance(records, list):
+        return records
+    return api_list(result)
 
 
 def api_search_lists(result: dict) -> tuple[list[dict], list[dict], int]:
@@ -53,10 +62,113 @@ def api_total(result: dict) -> int:
 
 
 def api_ok(result: dict) -> bool:
-    action = result.get("ActionResult")
-    if action is not None:
-        return str(action) == "1"
+    for key in ("ActionResult", "actionResult"):
+        action = result.get(key)
+        if action is not None:
+            return str(action) == "1"
     return result.get("code") == 200
+
+
+def flatten_tree_nodes(
+    nodes: list,
+    *,
+    id_key: str = "id",
+    name_key: str = "name",
+    children_key: str = "children",
+    alt_id_keys: tuple[str, ...] = (),
+    alt_name_keys: tuple[str, ...] = (),
+    max_lines: int = 80,
+) -> list[str]:
+    """将树形分类展平为可读行。"""
+    lines: list[str] = []
+
+    def walk(items: list, depth: int = 0) -> None:
+        if len(lines) >= max_lines:
+            return
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            node_id = item.get(id_key)
+            for alt in alt_id_keys:
+                node_id = node_id or item.get(alt)
+            name = item.get(name_key)
+            for alt in alt_name_keys:
+                name = name or item.get(alt)
+            prefix = "  " * (depth + 1)
+            lines.append(f"{prefix}• [{node_id or '—'}] {name or '—'}")
+            children = item.get(children_key) or []
+            if isinstance(children, list) and children:
+                walk(children, depth + 1)
+
+    walk(nodes)
+    return lines
+
+
+def flatten_task_categories(data: dict) -> list[dict]:
+    """众包任务分类：合并 exclusive/other 列表并展平子节点。"""
+    if not isinstance(data, dict):
+        return []
+    items: list[dict] = []
+    for key in ("exclusiveCategoryList", "otherCategoryList"):
+        nodes = data.get(key) or []
+        if isinstance(nodes, list):
+            items.extend(nodes)
+    flat: list[dict] = []
+
+    def walk(nodes: list) -> None:
+        for node in nodes:
+            if not isinstance(node, dict):
+                continue
+            flat.append(node)
+            children = node.get("children") or []
+            if isinstance(children, list):
+                walk(children)
+
+    walk(items)
+    return flat
+
+
+def format_b_todo_item(todo: dict) -> str:
+    detail_id = (
+        todo.get("scheduleDetailId")
+        or todo.get("detailId")
+        or todo.get("id")
+        or "—"
+    )
+    todo_type = todo.get("todoTypeDesc") or todo.get("typeDesc") or todo.get("title")
+    if not todo_type:
+        data_type = todo.get("dataType")
+        todo_type = {1: "考勤审核", 2: "延时申请", 3: "加价申请", 4: "待办事项"}.get(data_type, "待办")
+    worker = todo.get("workerName") or todo.get("workerEncryptName") or "—"
+    position = todo.get("positionName") or ""
+    job_id = todo.get("jobId")
+    when = todo.get("createTime") or todo.get("createTimeFormat") or ""
+    schedule = " ".join(
+        p
+        for p in (
+            todo.get("jobDateFormat") or todo.get("jobDate"),
+            f"{todo.get('spanStartTime', '')}-{todo.get('spanEndTime', '')}".strip("-"),
+        )
+        if p
+    )
+    meta = " | ".join(p for p in (f"岗位{job_id}" if job_id else "", position, schedule) if p)
+    return f"⚠️ [{detail_id}] {todo_type} | {worker}" + (f" | {meta}" if meta else "") + (f" | {when}" if when else "")
+
+
+def format_task_order_item(order: dict) -> str:
+    task_id = order.get("task_id") or order.get("taskId") or "—"
+    title = order_title(order)
+    wares = order.get("waresList") or []
+    if title == "未知任务" and wares and isinstance(wares[0], dict):
+        title = wares[0].get("spu_name") or wares[0].get("service_project_name") or title
+    amount = order.get("service_amount")
+    if amount is None:
+        amount = order.get("amount")
+    status = order_status_desc(order)
+    if status == str(order.get("task_status", "待处理")) and order.get("task_status") is not None:
+        status_map = {1: "待支付", 2: "待接单", 3: "进行中", 4: "待验收", 5: "已完成"}
+        status = status_map.get(int(order["task_status"]), status)
+    return f"📦 [{task_id}] {title} | ¥{amount if amount is not None else '—'} | {status}"
 
 
 def api_message(result: dict, default: str = "") -> str:

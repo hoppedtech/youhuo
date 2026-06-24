@@ -1,6 +1,6 @@
 """有活平台 C 端（找活方）统一 MCP Server。
 
-整合：扫码授权 + 找活/报名 + 用户画像 + 余额/提现。
+整合：扫码授权 + 找活/报名 + 用户画像 + 余额查询。
 对应 Skill：job-seeker。
 """
 import os
@@ -18,7 +18,11 @@ except ImportError:
 from shared_token_store import auth_store
 from tools.qr_auth import fetch_qr_image_url
 from tools.compose import load_tools_from_server, _internal_path
-from tools.youhuo_env import applet_base_url
+from tools.youhuo_env import applet_base_url, ensure_gateway_configured
+from tools.mcp_write_guard import ensure_production_write_guard
+
+ensure_gateway_configured()
+ensure_production_write_guard()
 
 mcp = FastMCP("youhuo-c-api")
 
@@ -29,10 +33,10 @@ load_tools_from_server(
     _internal_path("youhuo-c-api", "auth"),
     skip={"create_auth_session"},
 )
+load_tools_from_server(mcp, _internal_path("youhuo-c-api", "guard"))
 load_tools_from_server(
     mcp,
     _internal_path("youhuo-c-api", "worker"),
-    skip={"get_account_balance"},
 )
 load_tools_from_server(mcp, _internal_path("youhuo-c-api", "profile"))
 load_tools_from_server(
@@ -45,16 +49,17 @@ load_tools_from_server(
         "pay_balance",
         "apply_invoice",
         "get_invoice_list",
+        "withdraw_balance",
     },
 )
 
 
 @mcp.tool()
-async def create_auth_session(source_code: str = "") -> str:
+async def create_auth_session(source_code: int = 0) -> str:
     """创建 C 端（找活方）扫码授权会话，返回小程序码和会话 ID。
 
     固定 role=1，用户微信扫码后在小程序完成登录。
-    source_code 用于记录来源 Agent（可选，scene限制最大约3字符）。
+    source_code 为来源 Agent 编号（整数），0 表示未指定。
     """
     auth_store.cleanup_expired()
     session_id = auth_store.create_session(role=1)

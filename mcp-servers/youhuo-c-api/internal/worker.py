@@ -1,6 +1,6 @@
 """有活平台 C 端找活/零工 MCP Server。
 
-提供岗位搜索、智能推荐、报名接单、订单查看、账户余额等能力。
+提供岗位搜索、智能推荐、报名接单、订单查看等能力。
 job-seeker Skill 依赖本 Server。
 """
 import os
@@ -25,10 +25,6 @@ from tools.api_response import (
     order_salary,
     order_status_desc,
     order_title,
-    parse_auth_info,
-    parse_worker_balance,
-    profile_phone,
-    profile_skill_names,
 )
 from tools.job_recommend import (
     JOB_TYPE_CROWD,
@@ -45,6 +41,7 @@ from tools.job_recommend import (
     normalize_city,
 )
 from tools.job_search import build_get_search_list_payload
+from tools.mcp_write_guard import WriteGate
 from tools.youhuo_env import applet_base_url
 
 try:
@@ -430,24 +427,43 @@ async def _get_profile() -> dict:
     return api_data(result) or {}
 
 
+async def _fetch_apply_eligibility(job_id: int = 0) -> dict:
+    path = f"Credential/IsAllowOrders?jobId={job_id}" if job_id else "Credential/IsAllowOrders"
+    result = await _req("GET", path)
+    allowed = allow_orders(result)
+    response: dict = {
+        "allowed": allowed if allowed is not None else False,
+        "job_id": job_id or None,
+    }
+    if allowed is True:
+        return response
+    if allowed is False:
+        response["guide"] = (
+            "您当前不具备接单权限。可能原因：未完成实名认证、未绑定手机号或账号被限制。"
+            "请前往有活小程序完善个人信息。"
+        )
+    else:
+        response["guide"] = api_message(result) or "无法确认接单权限，请稍后重试或在小程序中查看。"
+    return response
+
+
 @mcp.tool()
-async def get_entry_job_requirements(
-    job_id: int,
+async def check_apply_readiness(
+    job_id: int = 0,
     schedule_ids: str = "",
     skill_ids: str = "",
 ) -> str:
-    """检查岗位报名所需资料是否齐全（对齐小程序报名确认页）。
+    """报名/接单前一站式检查（权限 + 岗位资料）。
 
-    聚合接口:
-    - Job/JobDetail
-    - Job/GetEntryJobDetail（资质、技能标签、简历要求）
-    - Personal/getbasicinfo（当前用户资料）
+    - job_id=0：仅检查全局接单权限（原 check_apply_eligibility）
+    - job_id>0：检查接单权限 + 岗位报名资料是否齐全（原 get_entry_job_requirements）
 
     Args:
-        job_id: 岗位ID
-        schedule_ids: 可选，已选班次 ID（逗号分隔），用于小时工/计件工
-        skill_ids: 可选，已选技能标签 ID（逗号分隔）
+        job_id: 岗位 ID；0 表示不指定岗位
+        schedule_ids: 已选班次 ID，逗号分隔（小时工/计件工）
+        skill_ids: 已选技能标签 ID，逗号分隔
     """
+    from tools.job_apply import parse_schedule_ids
     from tools.job_entry import (
         assess_apply_readiness,
         fetch_entry_job_detail,
@@ -455,7 +471,26 @@ async def get_entry_job_requirements(
         format_entry_requirements,
         parse_skill_ids,
     )
-    from tools.job_apply import parse_schedule_ids
+
+    try:
+        eligibility = await _fetch_apply_eligibility(job_id if job_id > 0 else 0)
+    except Exception as e:
+        return json.dumps({"success": False, "error": str(e)}, ensure_ascii=False)
+
+    if job_id <= 0:
+        return json.dumps({"success": True, **eligibility}, ensure_ascii=False, indent=2)
+
+    if not eligibility.get("allowed"):
+        return json.dumps(
+            {
+                "success": True,
+                "ready": False,
+                "eligibility": eligibility,
+                "summary": eligibility.get("guide", "暂不具备接单权限"),
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
 
     try:
         profile = await _get_profile()
@@ -469,7 +504,18 @@ async def get_entry_job_requirements(
             schedule_ids=parse_schedule_ids(schedule_ids) if schedule_ids else [],
             skill_ids=parse_skill_ids(skill_ids),
         )
-        return format_entry_requirements(report)
+        return json.dumps(
+            {
+                "success": True,
+                "ready": report.get("ready", False),
+                "job_id": job_id,
+                "eligibility": eligibility,
+                "report": report,
+                "summary": format_entry_requirements(report),
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
     except ValueError as e:
         return str(e)
     except Exception as e:
@@ -489,10 +535,15 @@ async def submit_job_registration(
     birthday: str = "",
     resume_path: str = "",
     resume_name: str = "",
+    user_confirmed: bool = False,
+    confirmation_summary: str = "",
+    confirm_token: str = "",
 ) -> str:
     """提交岗位报名资料（对齐小程序 postSign 页）。
 
     对应接口: Personal/JobRegistrationInfo (POST)
+
+    ⚠️ 须先 prepare_write_confirmation 获取 confirm_token，再 user_confirmed=true 调用。
 
     必填项与小程序一致：微信号、意向地址、期望薪资、薪资单位、技能标签。
     姓名/性别/出生年月未传时，会从当前用户资料自动补齐（已实名则不可改）。
@@ -509,7 +560,30 @@ async def submit_job_registration(
         birthday: 出生年月，如 198308 或 19830813（可选）
         resume_path: 简历 COS 地址（岗位要求简历时填写）
         resume_name: 简历文件名
+        user_confirmed: 必须为 true
+        confirm_token: prepare_write_confirmation 返回的一次性令牌
+        confirmation_summary: 可选，用户确认原话摘要
     """
+    g = WriteGate(
+        "submit_job_registration",
+        user_confirmed,
+        confirm_token=confirm_token,
+        confirmation_summary=confirmation_summary,
+        job_id=job_id,
+        wechat_account=wechat_account,
+        intention_address=intention_address,
+        salary_expectation=salary_expectation,
+        salary_unit=salary_unit,
+        skill_ids=skill_ids,
+        name=name,
+        sex=sex,
+        birthday=birthday,
+        resume_path=resume_path,
+        resume_name=resume_name,
+    )
+    if g.blocked:
+        return g.blocked
+
     from tools.job_entry import (
         build_job_registration_payload,
         parse_skill_ids,
@@ -534,31 +608,39 @@ async def submit_job_registration(
             resume_ext_name=resume_name.rsplit(".", 1)[-1] if "." in resume_name else "",
         )
         if not payload["name"] or not payload["birthday"]:
-            return json.dumps(
-                {"success": False, "error": "缺少姓名或出生年月，请先完善实名信息"},
-                ensure_ascii=False,
+            return g.finish(
+                json.dumps(
+                    {"success": False, "error": "缺少姓名或出生年月，请先完善实名信息"},
+                    ensure_ascii=False,
+                )
             )
         if not payload["skills"]:
-            return json.dumps(
-                {"success": False, "error": "请至少选择一个技能标签 skill_ids"},
-                ensure_ascii=False,
+            return g.finish(
+                json.dumps(
+                    {"success": False, "error": "请至少选择一个技能标签 skill_ids"},
+                    ensure_ascii=False,
+                )
             )
         result = await submit_registration(_req, payload)
         if api_ok(result):
-            return json.dumps(
-                {
-                    "success": True,
-                    "job_id": job_id,
-                    "message": api_message(result, "报名资料已提交"),
-                },
+            return g.finish(
+                json.dumps(
+                    {
+                        "success": True,
+                        "job_id": job_id,
+                        "message": api_message(result, "报名资料已提交"),
+                    },
+                    ensure_ascii=False,
+                )
+            )
+        return g.finish(
+            json.dumps(
+                {"success": False, "error": api_message(result, "提交失败")},
                 ensure_ascii=False,
             )
-        return json.dumps(
-            {"success": False, "error": api_message(result, "提交失败")},
-            ensure_ascii=False,
         )
     except Exception as e:
-        return json.dumps({"success": False, "error": str(e)}, ensure_ascii=False)
+        return g.finish(json.dumps({"success": False, "error": str(e)}, ensure_ascii=False))
 
 
 @mcp.tool()
@@ -569,6 +651,9 @@ async def apply_job(
     schedule_ids: str = "",
     skill_ids: str = "",
     require_complete_info: bool = True,
+    user_confirmed: bool = False,
+    confirmation_summary: str = "",
+    confirm_token: str = "",
 ) -> str:
     """报名接单（投递岗位）。
 
@@ -576,7 +661,9 @@ async def apply_job(
     - 小时工(4) / 计件工(6) → Job/EntryJob，需传 schedule_ids（班次ID，逗号分隔）
     - 普通岗位(2/5 等) → Personal/jobentry，body 使用 job_id（非 jobId）
 
-    默认会先检查报名资料是否齐全（get_entry_job_requirements 同逻辑）。
+    ⚠️ 须先 prepare_write_confirmation 获取 confirm_token，再 user_confirmed=true 调用。
+
+    默认会先检查报名资料是否齐全（check_apply_readiness 同逻辑）。
     资料不全时返回缺失项，请先调用 submit_job_registration 或在小程序补全。
 
     Args:
@@ -586,10 +673,33 @@ async def apply_job(
         schedule_ids: 小时工/计件工必填，班次 ID，多个用逗号分隔
         skill_ids: 可选，技能标签 ID，逗号分隔
         require_complete_info: 是否强制检查资料完整性，默认 True
+        user_confirmed: 必须为 true
+        confirm_token: prepare_write_confirmation 返回的一次性令牌
+        confirmation_summary: 可选，用户确认原话摘要
 
     Returns:
         报名结果。如果无权限会返回引导信息。
     """
+    g = WriteGate(
+        "apply_job",
+        user_confirmed,
+        confirm_token=confirm_token,
+        confirmation_summary=confirmation_summary,
+        job_id=job_id,
+        job_type=job_type,
+        schedule_ids=schedule_ids,
+        skill_ids=skill_ids,
+        require_complete_info=require_complete_info,
+    )
+    if g.blocked:
+        return g.blocked
+
+    job_id = g.param("job_id", job_id)
+    job_type = g.param("job_type", job_type)
+    schedule_ids = g.param("schedule_ids", schedule_ids)
+    skill_ids = g.param("skill_ids", skill_ids)
+    require_complete_info = g.param("require_complete_info", require_complete_info)
+
     from tools.job_apply import apply_job_for_detail
     from tools.job_entry import parse_skill_ids
 
@@ -598,7 +708,7 @@ async def apply_job(
         perm = await _req("GET", f"Credential/IsAllowOrders?jobId={job_id}")
         allowed = allow_orders(perm)
         if allowed is False:
-            return (
+            return g.finish(
                 "⚠️ 您当前不具备接单权限。\n"
                 "可能原因：\n"
                 "1. 未完成实名认证\n"
@@ -611,39 +721,254 @@ async def apply_job(
 
     try:
         profile = await _get_profile() if require_complete_info else None
-        return await apply_job_for_detail(
-            _req,
-            job_id,
-            job_type=job_type,
-            schedule_ids=schedule_ids,
-            skill_ids=parse_skill_ids(skill_ids),
-            require_complete_info=require_complete_info,
-            profile=profile,
+        return g.finish(
+            await apply_job_for_detail(
+                _req,
+                job_id,
+                job_type=job_type,
+                schedule_ids=schedule_ids,
+                skill_ids=parse_skill_ids(skill_ids),
+                require_complete_info=require_complete_info,
+                profile=profile,
+            )
         )
     except Exception as e:
-        return json.dumps({"success": False, "error": str(e)}, ensure_ascii=False)
+        return g.finish(json.dumps({"success": False, "error": str(e)}, ensure_ascii=False))
 
 
 @mcp.tool()
-async def cancel_apply(job_id: int) -> str:
+async def apply_job_standby(
+    job_id: int,
+    schedule_id: int,
+    schedule_ids: str = "",
+    skill_ids: str = "",
+    require_complete_info: bool = True,
+    user_confirmed: bool = False,
+    confirmation_summary: str = "",
+) -> str:
+    """对已报满但开放候补的班次提交候补。
+
+    对应接口: Job/EntryJobBackUp (POST)
+    与小程序一致：班次 status=8（已报满·可候补）时可调用。
+
+    ⚠️ 须 user_confirmed=true（无需 confirm_token）。
+
+    Args:
+        job_id: 岗位 ID
+        schedule_id: 要候补的班次 ID（来自 get_job_detail 班次列表）
+        schedule_ids: 连报多天时传关联班次 ID，逗号分隔（对应 scheduleIds）
+        skill_ids: 可选，岗位要求的技能标签 ID，逗号分隔
+        require_complete_info: 是否先检查报名资料，默认 True
+        user_confirmed: 必须为 true
+        confirmation_summary: 可选，用户确认原话摘要
+
+    Returns:
+        候补提交结果 JSON
+    """
+    g = WriteGate(
+        "apply_job_standby",
+        user_confirmed,
+        require_token=False,
+        confirmation_summary=confirmation_summary,
+        job_id=job_id,
+        schedule_id=schedule_id,
+        schedule_ids=schedule_ids,
+        skill_ids=skill_ids,
+        require_complete_info=require_complete_info,
+    )
+    if g.blocked:
+        return g.blocked
+
+    from tools.job_apply import (
+        apply_job_standby as submit_standby,
+        interpret_standby_result,
+        parse_schedule_ids,
+    )
+    from tools.job_entry import parse_skill_ids
+
+    try:
+        if require_complete_info:
+            from tools.job_entry import (
+                assess_apply_readiness,
+                fetch_entry_job_detail,
+                fetch_job_detail as fetch_job_detail_data,
+                format_readiness_blocker,
+            )
+
+            profile = await _get_profile()
+            job_detail = await fetch_job_detail_data(_req, job_id)
+            entry_detail = await fetch_entry_job_detail(_req, job_id)
+            report = assess_apply_readiness(
+                job_id=job_id,
+                job_detail=job_detail,
+                entry_detail=entry_detail,
+                profile=profile,
+                schedule_ids=[schedule_id],
+                skill_ids=parse_skill_ids(skill_ids),
+            )
+            if not report["ready"]:
+                return g.finish(format_readiness_blocker(report))
+
+        multi_ids = parse_schedule_ids(schedule_ids) or None
+        result = await submit_standby(
+            _req,
+            job_id,
+            schedule_id,
+            multi_schedule_ids=multi_ids,
+            skill_ids=parse_skill_ids(skill_ids) or None,
+        )
+        return g.finish(interpret_standby_result(result, job_id, schedule_id))
+    except Exception as e:
+        return g.finish(json.dumps({"success": False, "error": str(e)}, ensure_ascii=False))
+
+
+@mcp.tool()
+async def cancel_job_standby(
+    job_id: int,
+    schedule_id: int,
+    schedule_ids: str = "",
+    user_confirmed: bool = False,
+    confirmation_summary: str = "",
+) -> str:
+    """取消班次候补。
+
+    对应接口: Job/CancelEntryJobBackUp (POST)
+
+    ⚠️ 须 user_confirmed=true（无需 confirm_token）。
+
+    Args:
+        job_id: 岗位 ID
+        schedule_id: 班次 ID
+        schedule_ids: 连报多天时传关联班次 ID，逗号分隔
+        user_confirmed: 必须为 true
+        confirmation_summary: 可选，用户确认原话摘要
+
+    Returns:
+        取消结果 JSON
+    """
+    g = WriteGate(
+        "cancel_job_standby",
+        user_confirmed,
+        require_token=False,
+        confirmation_summary=confirmation_summary,
+        job_id=job_id,
+        schedule_id=schedule_id,
+        schedule_ids=schedule_ids,
+    )
+    if g.blocked:
+        return g.blocked
+
+    from tools.job_apply import (
+        cancel_job_standby as cancel_standby,
+        interpret_cancel_standby_result,
+        parse_schedule_ids,
+    )
+
+    try:
+        multi_ids = parse_schedule_ids(schedule_ids) or None
+        result = await cancel_standby(
+            _req,
+            job_id,
+            schedule_id,
+            multi_schedule_ids=multi_ids,
+        )
+        return g.finish(interpret_cancel_standby_result(result, job_id, schedule_id))
+    except Exception as e:
+        return g.finish(json.dumps({"success": False, "error": str(e)}, ensure_ascii=False))
+
+
+@mcp.tool()
+async def cancel_apply(
+    job_id: int,
+    user_confirmed: bool = False,
+    confirmation_summary: str = "",
+    confirm_token: str = "",
+) -> str:
     """取消报名/接单。
 
     对应接口: Personal/cancelentry (GET)
 
+    ⚠️ 须先 prepare_write_confirmation 获取 confirm_token，再 user_confirmed=true 调用。
+
     Args:
         job_id: 要取消报名的岗位ID
+        user_confirmed: 必须为 true
+        confirm_token: prepare_write_confirmation 返回的一次性令牌
+        confirmation_summary: 可选，用户确认原话摘要
 
     Returns:
         取消结果
     """
+    g = WriteGate(
+        "cancel_apply",
+        user_confirmed,
+        confirm_token=confirm_token,
+        confirmation_summary=confirmation_summary,
+        job_id=job_id,
+    )
+    if g.blocked:
+        return g.blocked
+
     try:
         result = await _req("GET", f"Personal/cancelentry?jobId={job_id}")
     except Exception as e:
-        return json.dumps({"success": False, "error": str(e)}, ensure_ascii=False)
+        return g.finish(json.dumps({"success": False, "error": str(e)}, ensure_ascii=False))
 
     if api_ok(result):
-        return f"✅ 已取消对岗位 {job_id} 的报名。"
-    return f"❌ 取消失败：{api_message(result, '未知错误')}"
+        return g.finish(f"✅ 已取消对岗位 {job_id} 的报名。")
+    return g.finish(f"❌ 取消失败：{api_message(result, '未知错误')}")
+
+
+@mcp.tool()
+async def cancel_order(
+    order_id: int,
+    user_confirmed: bool = False,
+    confirmation_summary: str = "",
+    confirm_token: str = "",
+) -> str:
+    """取消订单（已生成的干活订单，区别于 cancel_apply 取消报名）。
+
+    对应接口: HoppedTask/CancelTask (POST)
+
+    注意区分：
+    - cancel_apply：取消岗位报名（尚未生成订单，接口 Personal/cancelentry）
+    - cancel_order：取消已生成的干活订单（订单已确认，接口 HoppedTask/CancelTask）
+    订单状态为「我已到达」等进展中状态时，取消可能需企业端确认。
+
+    ⚠️ 须先 prepare_write_confirmation 获取 confirm_token，再 user_confirmed=true 调用。
+
+    Args:
+        order_id: 订单ID（数字，如 32124，可通过 get_task_detail 获取）
+        user_confirmed: 必须为 true
+        confirm_token: prepare_write_confirmation 返回的一次性令牌
+        confirmation_summary: 可选，用户确认原话摘要
+
+    Returns:
+        取消结果
+    """
+    g = WriteGate(
+        "cancel_order",
+        user_confirmed,
+        confirm_token=confirm_token,
+        confirmation_summary=confirmation_summary,
+        order_id=order_id,
+    )
+    if g.blocked:
+        return g.blocked
+
+    try:
+        result = await _req("POST", "HoppedTask/CancelTask", json={
+            "task_id": order_id,
+            "bargaining_status": 4,   # 4 = 用户取消
+            "is_save": True,
+            "cancel_reason": "用户主动取消",
+        })
+    except Exception as e:
+        return g.finish(json.dumps({"success": False, "error": str(e)}, ensure_ascii=False))
+
+    if api_ok(result):
+        return g.finish(f"✅ 已取消订单 {order_id}。 [v2-CancelTask]")
+    return g.finish(f"❌ 取消失败：{api_message(result, '未知错误')}")
 
 
 # ──── 我的订单/任务 ────
@@ -699,27 +1024,6 @@ async def get_my_work_orders(
 
     Args:
         status: 订单状态 all(全部)/doing(进行中)/done(已完成)/cancelled(已取消)
-        page: 页码
-        page_size: 每页数量
-    """
-    try:
-        return await _fetch_my_work_orders(status, page, page_size)
-    except Exception as e:
-        return json.dumps({"success": False, "error": str(e)}, ensure_ascii=False)
-
-
-@mcp.tool()
-async def get_my_tasks(
-    status: str = "all",
-    page: int = 1,
-    page_size: int = 10,
-) -> str:
-    """查看我的订单/任务列表（get_my_work_orders 别名，兼容旧调用）。
-
-    对应接口: HoppedTask/OrderTaskList (POST)
-
-    Args:
-        status: 订单状态 all/pending/processing/completed/cancelled（或 doing/done）
         page: 页码
         page_size: 每页数量
     """
@@ -850,71 +1154,6 @@ async def get_work_calendar(month: str = "") -> str:
                 f"{task.get('timeStart', '')}-{task.get('timeEnd', '')}"
             )
     return "\n".join(lines)
-
-
-# ──── 个人资料 ────
-
-@mcp.tool()
-async def get_worker_profile() -> str:
-    """获取零工个人资料/基础信息。
-
-    对应接口: Personal/getbasicinfo (GET)
-
-    Returns:
-        个人资料，包含姓名、技能、认证状态、完成单量等
-    """
-    try:
-        result = await _req("GET", "Personal/getbasicinfo")
-    except Exception as e:
-        return json.dumps({"success": False, "error": str(e)}, ensure_ascii=False)
-
-    data = api_data(result)
-    if not data:
-        return "未获取到个人资料。"
-
-    _, auth_desc, _ = parse_auth_info(data)
-    phone = profile_phone(data)
-    skills = profile_skill_names(data)
-
-    lines = [
-        f"👤 {data.get('name', '未命名用户')}",
-        f"📱 手机号: {phone or '未绑定'}",
-        f"🆔 实名认证: {auth_desc}",
-        f"⭐ 评分: {data.get('star', 'N/A')}",
-        f"📦 完成单量: {data.get('finishCount', data.get('finish_count', 0))}单",
-        f"📍 常驻城市: {data.get('city') or data.get('residence_address') or '未设置'}",
-        f"💰 账户余额: ¥{data.get('balance', 0)}",
-    ]
-
-    if skills:
-        lines.append(f"🏷️ 技能: {', '.join(skills)}")
-
-    # 工种
-    categories = data.get("categories", [])
-    if categories:
-        lines.append(f"🔧 工种: {', '.join(categories)}")
-
-    return "\n".join(lines)
-
-
-@mcp.tool()
-async def get_account_balance() -> str:
-    """查询零工账户余额和可提现金额。
-
-    对应接口: Account/GetAccountAmount (GET)
-    """
-    try:
-        result = await _req("GET", "Account/GetAccountAmount")
-    except Exception as e:
-        return json.dumps({"success": False, "error": str(e)}, ensure_ascii=False)
-
-    data = api_data(result)
-    balance_info = parse_worker_balance(data)
-    return (
-        f"💰 账户余额：¥{balance_info['balance']}\n"
-        f"🏆 保证金：¥{balance_info['bond_amount']}\n"
-        f"💵 可提现：¥{balance_info['withdrawable']}"
-    )
 
 
 if __name__ == "__main__":

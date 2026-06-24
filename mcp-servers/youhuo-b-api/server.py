@@ -18,7 +18,11 @@ except ImportError:
 from shared_token_store import auth_store
 from tools.qr_auth import fetch_qr_image_url
 from tools.compose import load_tools_from_server, _internal_path
-from tools.youhuo_env import applet_base_url
+from tools.youhuo_env import applet_base_url, ensure_gateway_configured
+from tools.mcp_write_guard import ensure_production_write_guard
+
+ensure_gateway_configured()
+ensure_production_write_guard()
 
 mcp = FastMCP("youhuo-b-api")
 
@@ -29,11 +33,8 @@ load_tools_from_server(
     _internal_path("youhuo-b-api", "auth"),
     skip={"create_auth_session"},
 )
-load_tools_from_server(
-    mcp,
-    _internal_path("youhuo-b-api", "hire"),
-    skip={"get_enterprise_balance"},
-)
+load_tools_from_server(mcp, _internal_path("youhuo-b-api", "guard"))
+load_tools_from_server(mcp, _internal_path("youhuo-b-api", "hire"))
 load_tools_from_server(mcp, _internal_path("youhuo-b-api", "task"))
 load_tools_from_server(
     mcp,
@@ -43,11 +44,11 @@ load_tools_from_server(
 
 
 @mcp.tool()
-async def create_auth_session(source_code: str = "") -> str:
+async def create_auth_session(source_code: int = 0) -> str:
     """创建 B 端（招工方）扫码授权会话，返回小程序码和会话 ID。
 
     固定 role=2，用户微信扫码后在小程序完成登录。
-    source_code 用于记录来源 Agent（可选，scene限制最大约3字符）。
+    source_code 为来源 Agent 编号（整数），0 表示未指定。
     """
     auth_store.cleanup_expired()
     session_id = auth_store.create_session(role=2)

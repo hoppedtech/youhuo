@@ -38,8 +38,9 @@ docker build -f marketplace/youhuo-b-api/Dockerfile -t youhuo-b-api-mcp:1.0.0 .
 1. 安装并登录 [CloudBase CLI](https://docs.cloudbase.net/cli-v1/install)：`npm i -g @cloudbase/cli && tcb login`
 2. 在 CloudBase 控制台创建环境，启用云托管
 3. 上传镜像或使用 `tcb cloudrun deploy` 部署对应 Dockerfile
-4. **在云托管控制台配置生产环境变量**（见 `youhuo-c-api/DOC.md`，勿依赖镜像内测试域名）
-5. 将 `meta.json` + `DOC.md` 提交 [云开发 MCP 市场上架](https://docs.cloudbase.net/ai/mcp/develop/publish)
+4. **在云托管控制台配置生产环境变量**（见各 `DOC.md`；须注入 `YOUHUO_BASE_URL`，镜像已设 `YOUHUO_REQUIRE_BASE_URL=1`）
+5. 构建时使用 `.dockerignore` 减小镜像体积
+6. 将 `meta.json` + `DOC.md` 提交 [云开发 MCP 市场上架](https://docs.cloudbase.net/ai/mcp/develop/publish)
 
 ## 腾讯云 MCP 广场（企业入驻）
 

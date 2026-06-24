@@ -112,11 +112,16 @@ def format_crowd_task_detail(data: dict, task_id: int | None = None) -> str:
 
 
 def format_jd_job_detail(data: dict, job_id: int | None = None, job_type: str = "") -> str:
+    from tools.job_schedule import format_schedules_section
+
     resolved_type = job_type or classify_jd_job(data)
     text = format_job_detail(data, job_id)
     if f"【{resolved_type}】" in text:
-        return text
-    return text.replace("📋 ", f"📋 【{resolved_type}】", 1)
+        base = text
+    else:
+        base = text.replace("📋 ", f"📋 【{resolved_type}】", 1)
+    schedules_text = format_schedules_section(data)
+    return base + schedules_text if schedules_text else base
 
 
 async def _fetch_jd_detail(req: RequestFn, job_id: int) -> dict:

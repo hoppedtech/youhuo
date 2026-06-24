@@ -1,0 +1,33 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+
+# Local secrets & runtime data
+.env
+.env.*
+!.env.example
+**/.workbuddy/
+*.db
+youhuo_auth.db
+
+# Dev / test (not needed in production image)
+scripts/
+test_*.py
+inject_token.py
+docs/
+*.zip
+*.jpg
+*.png
+
+# IDE & git
+.git/
+.gitignore
+.cursor/
+.vscode/
+
+# Legacy archives
+youhuo-auth-service.zip
+youhuo-hire-api.zip

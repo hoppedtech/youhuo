@@ -22,8 +22,13 @@ COPY shared_token_store.py /app/
 COPY tools/ /app/tools/
 COPY youhuo-b-api/ /app/youhuo-b-api/
 
-# 生产网关由云托管 YOUHUO_BASE_URL 注入，勿在镜像内写 sops-test 默认值
-ENV PYTHONUNBUFFERED=1
+# 生产网关由云托管 YOUHUO_BASE_URL 注入；未配置时拒绝启动
+ENV PYTHONUNBUFFERED=1 \
+    YOUHUO_REQUIRE_BASE_URL=1 \
+    YOUHUO_REJECT_TEST_GATEWAY=1 \
+    YOUHUO_AUTH_DB_PATH=/tmp/youhuo_auth.db \
+    YOUHUO_MCP_CONFIRM_TOKEN_STORE=/tmp/youhuo_mcp_confirm_tokens.json \
+    YOUHUO_MCP_AUDIT_LOG_PATH=/tmp/youhuo_mcp_audit.log
 
 EXPOSE 80
 

@@ -99,7 +99,7 @@ Token 保存在本机 `~/.workbuddy/youhuo_auth.db`（约 2 小时有效）。
 | `search_jobs` | 按城市、关键词搜索（对齐小程序 `GetSearchList`） |
 | `get_recommend_jobs` | 智能推荐 |
 | `get_job_detail` | 岗位详情 |
-| `get_entry_job_requirements` | 报名前资料检查（小时工需班次 ID） |
+| `check_apply_readiness` | 报名前权限与资料检查（`job_id=0` 仅查权限） |
 | `apply_job` / `cancel_apply` | 报名 / 取消报名 |
 | `get_my_work_orders` | 我的订单 |
 
@@ -118,7 +118,7 @@ Token 保存在本机 `~/.workbuddy/youhuo_auth.db`（约 2 小时有效）。
 ## 安全说明
 
 - **切勿提交** `youhuo_auth.db`、`.env` 或任何真实 Token（已配置 `.gitignore`）
-- 写操作（`apply_job`、`cancel_apply`、`withdraw_balance` 等）须在获得用户**明确确认**后调用
+- 写操作（`apply_job`、`cancel_apply` 等）须在获得用户**明确确认**后调用；**提现请引导用户至有活小程序**
 - `check_auth_status` 仅返回截断的 `token_preview`，不暴露完整 Token
 
 ## 许可证

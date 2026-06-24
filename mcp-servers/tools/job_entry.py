@@ -290,7 +290,7 @@ def format_readiness_blocker(report: dict) -> str:
             "error": "报名资料不完整，请先补充后再报名",
             "job_id": report.get("job_id"),
             "missing": report.get("missing"),
-            "hint": "先调用 get_entry_job_requirements 查看详情，再调用 submit_job_registration 补资料",
+            "hint": "先调用 check_apply_readiness 查看详情，再调用 submit_job_registration 补资料",
         },
         ensure_ascii=False,
     )

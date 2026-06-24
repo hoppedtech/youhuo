@@ -11,6 +11,7 @@ from tools.job_recommend import JOB_TYPE_CROWD, JOB_TYPE_HOURLY, JOB_TYPE_PIECE
 RequestFn = Callable[..., Awaitable[dict]]
 
 SCHEDULE_PRODUCT_TYPES = {4, 6}  # 小时工、计件工
+STANDBY_PRODUCT_TYPES = {4, 5, 6}  # 小程序候补入口覆盖的类型
 
 
 def parse_schedule_ids(schedule_ids: str | list[int] | None) -> list[int]:
@@ -111,10 +112,111 @@ def format_apply_success(job_id: int, message: str = "报名成功！") -> str:
     )
 
 
-def format_apply_failure(message: str) -> str:
+def format_apply_failure(message: str, *, hint: str = "") -> str:
     import json
 
-    return json.dumps({"success": False, "error": message}, ensure_ascii=False)
+    payload: dict = {"success": False, "error": message}
+    if hint:
+        payload["hint"] = hint
+    return json.dumps(payload, ensure_ascii=False)
+
+
+def _standby_hint(job_id: int) -> str:
+    return (
+        f"该班次/岗位已报满，若详情中班次状态为「已报满(可候补)」，"
+        f"请调用 apply_job_standby(job_id={job_id}, schedule_id=班次ID)。"
+    )
+
+
+def build_standby_payload(
+    job_id: int,
+    schedule_id: int,
+    *,
+    multi_schedule_ids: list[int] | None = None,
+    skill_ids: list | None = None,
+) -> dict:
+    payload: dict = {"job_id": job_id, "schedule_id": schedule_id}
+    if multi_schedule_ids:
+        payload["scheduleIds"] = multi_schedule_ids
+    if skill_ids:
+        payload["skill_ids"] = skill_ids
+    return payload
+
+
+async def apply_job_standby(
+    req: RequestFn,
+    job_id: int,
+    schedule_id: int,
+    *,
+    multi_schedule_ids: list[int] | None = None,
+    skill_ids: list | None = None,
+) -> dict:
+    payload = build_standby_payload(
+        job_id,
+        schedule_id,
+        multi_schedule_ids=multi_schedule_ids,
+        skill_ids=skill_ids,
+    )
+    return await req("POST", "Job/EntryJobBackUp", json=payload)
+
+
+async def cancel_job_standby(
+    req: RequestFn,
+    job_id: int,
+    schedule_id: int,
+    *,
+    multi_schedule_ids: list[int] | None = None,
+) -> dict:
+    payload: dict = {"job_id": job_id, "schedule_id": schedule_id}
+    if multi_schedule_ids:
+        payload["scheduleIds"] = multi_schedule_ids
+    return await req("POST", "Job/CancelEntryJobBackUp", json=payload)
+
+
+def interpret_standby_result(result: dict, job_id: int, schedule_id: int) -> str:
+    import json
+
+    if not api_ok(result):
+        msg = api_message(result, "候补失败")
+        hint = _standby_hint(job_id) if "报满" in msg else ""
+        return format_apply_failure(msg, hint=hint)
+
+    data = api_data(result)
+    if data == -10 or str(data) == "-10":
+        return format_apply_failure("候补失败：该岗位名额已满且候补通道已关闭。")
+
+    if isinstance(data, dict):
+        failed = data.get("faileSchedules") or data.get("failSchedules") or []
+        if failed:
+            reason = failed[0].get("fail_reason") or "候补失败"
+            return format_apply_failure(reason, hint=_standby_hint(job_id))
+
+    return json.dumps(
+        {
+            "success": True,
+            "job_id": job_id,
+            "schedule_id": schedule_id,
+            "message": api_message(result, "候补成功"),
+            "note": "名额释放后将按候补顺序通知，可在「我的订单」查看候补中班次。",
+        },
+        ensure_ascii=False,
+    )
+
+
+def interpret_cancel_standby_result(result: dict, job_id: int, schedule_id: int) -> str:
+    import json
+
+    if not api_ok(result):
+        return format_apply_failure(api_message(result, "取消候补失败"))
+    return json.dumps(
+        {
+            "success": True,
+            "job_id": job_id,
+            "schedule_id": schedule_id,
+            "message": api_message(result, "已取消候补"),
+        },
+        ensure_ascii=False,
+    )
 
 
 def interpret_schedule_entry_result(result: dict, job_id: int) -> str:
@@ -135,7 +237,18 @@ def interpret_schedule_entry_result(result: dict, job_id: int) -> str:
             reason = invalid[0].get("fail_reason") or "班次已失效"
             return format_apply_failure(reason)
         if data.get("errcode"):
-            return format_apply_failure(str(data.get("fail_reason") or data.get("errcode")))
+            reason = str(data.get("fail_reason") or data.get("errcode"))
+            hint = _standby_hint(job_id) if "报满" in reason else ""
+            return format_apply_failure(reason, hint=hint)
+    raw = result.get("Data")
+    if raw == "1" or raw == 1:
+        return format_apply_failure(
+            "该岗位已报满，当前为抢单/捡漏阶段，请对可候补班次提交候补。",
+            hint=_standby_hint(job_id),
+        )
+    msg = api_message(result, "")
+    if msg and "报满" in msg:
+        return format_apply_failure(msg, hint=_standby_hint(job_id))
     if api_message(result):
         return format_apply_success(job_id, api_message(result, "报名成功！"))
     return format_apply_success(job_id)
@@ -197,4 +310,11 @@ async def apply_job_for_detail(
     result = await apply_position_job(req, job_id, skill_ids=skill_ids)
     if api_ok(result):
         return format_apply_success(job_id, api_message(result, "报名成功！"))
-    return format_apply_failure(api_message(result, "报名失败"))
+    msg = api_message(result, "报名失败")
+    hint = ""
+    if "报满" in msg:
+        hint = (
+            "普通订阅岗位报满后通常无法候补；"
+            "小时工/计件工 PK 岗位请查看 get_job_detail 中 status=8 的班次并调用 apply_job_standby。"
+        )
+    return format_apply_failure(msg, hint=hint)

@@ -11,6 +11,22 @@ import httpx
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 from shared_token_store import auth_store
 from tools.youhuo_env import applet_base_url, employ_base_url
+from tools.api_response import api_ok, api_message
+from tools.enterprise_balance import (
+    build_enterprise_balance_view,
+    parse_user_profile,
+    unwrap_balance_payload,
+)
+from tools.account_log import (
+    ACCOUNT_TYPE_LABELS,
+    build_account_log_payload,
+    filter_logs_by_days,
+    flatten_account_log_records,
+    format_account_log_section,
+    resolve_account_type,
+    resolve_log_change_type,
+)
+from tools.mcp_write_guard import WriteGate
 
 try:
     from mcp.server.fastmcp import FastMCP
@@ -128,172 +144,372 @@ async def withdraw_balance(amount: float) -> str:
 
 # ──── B 端：企业余额 / 明细 ────
 
-@mcp.tool()
-async def get_enterprise_balance() -> str:
-    """查询企业账户余额（积分 + 现金 + 体验金，B 端）。
+FINANCE_SECTIONS = frozenset({"balance", "log"})
 
-    对应接口: miniprogram/account/balance (GET)
 
-    需 B 端授权 role=2。
-    """
+def _parse_finance_sections(sections: str) -> set[str] | None:
+    raw = (sections or "all").strip().lower()
+    if raw in ("all", "*", ""):
+        return set(FINANCE_SECTIONS)
+    selected = {s.strip().lower() for s in raw.replace("，", ",").split(",") if s.strip()}
+    unknown = selected - FINANCE_SECTIONS
+    if unknown:
+        return None
+    return selected
+
+
+async def _fetch_enterprise_balance_view() -> dict:
+    balance_result = await _req_b("POST", "miniprogram/account/balance", json={})
+    balance = unwrap_balance_payload(balance_result)
+    if not balance and not api_ok(balance_result):
+        raise Exception(api_message(balance_result, "查询余额失败"))
+    profile: dict = {}
     try:
-        result = await _req_b("GET", "miniprogram/account/balance")
-    except Exception as e:
-        return json.dumps({"success": False, "error": str(e)}, ensure_ascii=False)
+        profile_result = await _req_b("GET", "user/login/getUserLoginDetail")
+        profile = parse_user_profile(profile_result)
+    except Exception:
+        pass
+    return build_enterprise_balance_view(balance, profile)
 
-    data = result.get("data", {})
-    return json.dumps(
-        {
-            "points_balance": data.get("pointsBalance", data.get("points", 0)),
-            "cash_balance": data.get("cashBalance", 0),
-            "exp_balance": data.get("expBalance", data.get("trialAmount", 0)),
-            "total_balance": data.get("totalBalance", 0),
-            "summary": (
-                f"积分余额：{data.get('pointsBalance', data.get('points', 0))} 分\n"
-                f"现金余额：¥{data.get('cashBalance', 0)}\n"
-                f"体验金：¥{data.get('expBalance', data.get('trialAmount', 0))}"
-            ),
-        },
-        ensure_ascii=False,
-        indent=2,
+
+async def _fetch_account_log_section(
+    page: int,
+    page_size: int,
+    *,
+    days: int = 0,
+    log_type: str = "all",
+    account_type: int = 0,
+    balance_view: dict | None = None,
+) -> dict:
+    acct = resolve_account_type(account_type, balance_view)
+    change_type = resolve_log_change_type(log_type)
+    payload = build_account_log_payload(
+        account_type=acct,
+        change_type=change_type,
+        page=page,
+        page_size=page_size,
     )
+    result = await _req_b("POST", "account/log/getUserAccountLogPageList", json=payload)
+    data = result.get("data") or {}
+    records = data.get("records") or data.get("list") or []
+    api_total = data.get("total", 0)
+    flat = flatten_account_log_records(records)
+    if days > 0:
+        flat = filter_logs_by_days(flat, days)
+        flat.sort(key=lambda x: x.get("createTime") or "", reverse=True)
+    section = format_account_log_section(
+        flat,
+        days=days,
+        log_type=log_type,
+        account_type=acct,
+        total=api_total,
+    )
+    section["account_type"] = acct
+    section["account_type_label"] = ACCOUNT_TYPE_LABELS.get(acct, str(acct))
+    section["log_type"] = log_type
+    section["days"] = days
+    return section
 
 
 @mcp.tool()
-async def get_account_log(page: int = 1, page_size: int = 20) -> str:
-    """获取企业账户资金明细（B 端积分/现金流水）。
-
-    对应接口: account/log/getUserAccountLogPageList (POST)
+async def get_enterprise_finance(
+    sections: str = "all",
+    page: int = 1,
+    page_size: int = 50,
+    format: str = "json",
+    days: int = 0,
+    log_type: str = "all",
+    account_type: int = 0,
+) -> str:
+    """查询 B 端企业财务（余额 / 账户流水）。
 
     Args:
-        page: 页码
-        page_size: 每页数量
+        sections: all 或逗号分隔：balance, log
+        page: log 区段页码
+        page_size: log 区段每页数量（days>0 时建议 50–100）
+        format: json（默认）或 text（人类可读摘要）
+        days: 最近 N 天流水筛选，0=不限日期（仍受 page_size 约束）
+        log_type: all（全部）| expense/income 或 支出/收入
+        account_type: 0=按登录类型自动（个人余额8/企业余额9）；或 8/9/3/10
 
     需 B 端授权 role=2。
     """
-    payload = {"pageNum": page, "pageSize": page_size}
+    selected = _parse_finance_sections(sections)
+    if selected is None:
+        return json.dumps(
+            {
+                "success": False,
+                "error": f"sections 未知项，可选：{', '.join(sorted(FINANCE_SECTIONS))} 或 all",
+            },
+            ensure_ascii=False,
+        )
+
+    out: dict = {"success": True}
+    text_parts: list[str] = []
+    balance_view: dict | None = None
+
     try:
-        result = await _req_b("POST", "account/log/getUserAccountLogPageList", json=payload)
+        if "balance" in selected:
+            balance_view = await _fetch_enterprise_balance_view()
+            out["balance"] = balance_view
+            text_parts.append(json.dumps(balance_view, ensure_ascii=False, indent=2))
+        if "log" in selected:
+            if balance_view is None:
+                try:
+                    balance_view = await _fetch_enterprise_balance_view()
+                except Exception:
+                    balance_view = None
+            try:
+                resolve_log_change_type(log_type)
+            except ValueError as e:
+                return json.dumps({"success": False, "error": str(e)}, ensure_ascii=False)
+            log_section = await _fetch_account_log_section(
+                page,
+                page_size,
+                days=days,
+                log_type=log_type,
+                account_type=account_type,
+                balance_view=balance_view,
+            )
+            out["log"] = {
+                "items": log_section["items"],
+                "total": log_section["total"],
+                "sum_amount": log_section.get("sum_amount", 0),
+                "days": days,
+                "log_type": log_type,
+                "account_type": log_section.get("account_type"),
+                "account_type_label": log_section.get("account_type_label"),
+            }
+            text_parts.append(log_section["text"])
     except Exception as e:
         return json.dumps({"success": False, "error": str(e)}, ensure_ascii=False)
 
-    items = result.get("data", {}).get("list", [])
-    total = result.get("data", {}).get("total", 0)
-    if not items:
-        return "暂无账户明细。"
-
-    lines = [f"账户明细（共{total}条）：\n"]
-    for log in items:
-        log_type = log.get("type", "")
-        sign = "+" if log_type in ("income", "1", 1) else "-"
-        amount = log.get("amount", 0)
-        desc = log.get("description") or log.get("remark") or log.get("typeDesc", "—")
-        lines.append(f"{sign}¥{amount} | {desc} | {log.get('createTime', '')}")
-    return "\n".join(lines)
+    if (format or "json").strip().lower() == "text":
+        return "\n\n".join(text_parts) if text_parts else "暂无财务数据。"
+    if selected == {"balance"} and "balance" in out:
+        return json.dumps({"success": True, **out["balance"]}, ensure_ascii=False, indent=2)
+    return json.dumps(out, ensure_ascii=False, indent=2)
 
 
 # ──── B 端：结算支付 ────
 
 @mcp.tool()
-async def pay_schedule_settlement(detail_id: int, remark: str = "") -> str:
+async def pay_schedule_settlement(
+    detail_id: int,
+    remark: str = "",
+    user_confirmed: bool = False,
+    confirmation_summary: str = "",
+    confirm_token: str = "",
+) -> str:
     """支付排班明细结算款（B 端向零工结算）。
 
     对应接口: recruitWorkingScheduleDetail/pay (POST)
 
-    发布前须获得用户对结算金额和对象的明确确认。
+    ⚠️ 调用约束：须先通过 get_job_schedules(schedule_id>0) 展示零工、工时与结算金额，
+    并查 get_enterprise_finance(sections=balance)；向企业用户确认对象与金额后再调用；须 user_confirmed=true。
+    禁止代充值。
 
     Args:
-        detail_id: 排班明细 ID（来自 workforce-dispatcher 的 get_schedule_detail_list）
+        detail_id: 排班明细 ID（来自 workforce-dispatcher 的 get_job_schedules）
         remark: 结算备注
+        user_confirmed: 必须为 true
+        confirmation_summary: 可选，用户确认原话摘要
 
     需 B 端授权 role=2。
     """
+    g = WriteGate(
+        "pay_schedule_settlement",
+        user_confirmed,
+        confirm_token=confirm_token,
+        confirmation_summary=confirmation_summary,
+        detail_id=detail_id,
+        remark=remark,
+    )
+    if g.blocked:
+        return g.blocked
+
     payload = {"id": detail_id}
     if remark:
         payload["remark"] = remark
     try:
         result = await _req_b("POST", "recruitWorkingScheduleDetail/pay", json=payload)
     except Exception as e:
-        return json.dumps({"success": False, "error": str(e)}, ensure_ascii=False)
+        return g.finish(json.dumps({"success": False, "error": str(e)}, ensure_ascii=False))
 
-    if result.get("code") == 200:
-        return f"✅ 排班明细 {detail_id} 结算支付成功"
-    msg = result.get("message", "结算失败")
+    if api_ok(result):
+        return g.finish(f"✅ 排班明细 {detail_id} 结算支付成功")
+    msg = api_message(result, "结算失败")
     if "余额" in msg or "不足" in msg:
-        return json.dumps(
-            {
-                "success": False,
-                "reason": "BALANCE_INSUFFICIENT",
-                "message": msg,
-                "guide": "账户余额不足，请前往有活小程序充值后再结算。",
-            },
-            ensure_ascii=False,
+        return g.finish(
+            json.dumps(
+                {
+                    "success": False,
+                    "reason": "BALANCE_INSUFFICIENT",
+                    "message": msg,
+                    "guide": "账户余额不足，请前往有活小程序充值后再结算。",
+                },
+                ensure_ascii=False,
+            ),
         )
-    return json.dumps({"success": False, "error": msg}, ensure_ascii=False)
+    return g.finish(json.dumps({"success": False, "error": msg}, ensure_ascii=False))
 
 
 @mcp.tool()
-async def pay_balance(order_id: int) -> str:
-    """小时工/计件工订单余额支付（B 端）。
+async def pay_balance(
+    order_id: int,
+    user_confirmed: bool = False,
+    confirmation_summary: str = "",
+    confirm_token: str = "",
+) -> str:
+    """小时工/计件工订单余额支付（B 端，非发布后支付）。
 
     对应接口: account/balance-payment (POST)
 
+    ⚠️ 发布小时工/计件工后的支付请使用 hire 模块的 `pay_hourly_job(job_id)`。
+    本 Tool 用于其他 orderId 类订单场景。
+
+    ⚠️ 调用约束：须向企业用户展示订单号与支付金额，获明确确认后再调用；
+    须 user_confirmed=true + confirm_token。余额不足时引导小程序充值，禁止代充值。
+
     Args:
-        order_id: 订单 ID
+        order_id: 订单 ID（非 publish_jd 返回的 jd_id）
+        user_confirmed: 必须为 true
+        confirmation_summary: 可选，用户确认原话摘要
 
     需 B 端授权 role=2。
     """
+    g = WriteGate(
+        "pay_balance",
+        user_confirmed,
+        confirm_token=confirm_token,
+        confirmation_summary=confirmation_summary,
+        order_id=order_id,
+    )
+    if g.blocked:
+        return g.blocked
+
     payload = {"orderId": order_id}
     try:
         result = await _req_b("POST", "account/balance-payment", json=payload)
     except Exception as e:
-        return json.dumps({"success": False, "error": str(e)}, ensure_ascii=False)
+        return g.finish(json.dumps({"success": False, "error": str(e)}, ensure_ascii=False))
 
     if result.get("code") == 200:
-        return f"✅ 订单 {order_id} 余额支付成功"
+        return g.finish(f"✅ 订单 {order_id} 余额支付成功")
     msg = result.get("message", "支付失败")
     if "余额" in msg or "不足" in msg:
-        return json.dumps(
-            {
-                "success": False,
-                "reason": "BALANCE_INSUFFICIENT",
-                "message": msg,
-                "guide": "账户余额不足，请前往有活小程序充值。",
-            },
-            ensure_ascii=False,
+        return g.finish(
+            json.dumps(
+                {
+                    "success": False,
+                    "reason": "BALANCE_INSUFFICIENT",
+                    "message": msg,
+                    "guide": "账户余额不足，请前往有活小程序充值。",
+                },
+                ensure_ascii=False,
+            ),
         )
-    return json.dumps({"success": False, "error": msg}, ensure_ascii=False)
+    return g.finish(json.dumps({"success": False, "error": msg}, ensure_ascii=False))
 
 
 # ──── B 端：发票管理 ────
 
+async def _format_invoice_list(status: str, page: int, page_size: int) -> str:
+    payload = {"pageNum": page, "pageSize": page_size}
+    path = "invoiceInfo/list" if status == "pending" else "invoiceInfo/selectInvoice"
+    status_label = "待开票" if status == "pending" else "已开票"
+    result = await _req_b("POST", path, json=payload)
+    data = result.get("data") or {}
+    items = data.get("list") or []
+    total = data.get("total") or 0
+    if not items:
+        return f"暂无{status_label}发票记录。"
+    lines = [f"发票列表（{status_label}，共{total}条）：\n"]
+    for inv in items:
+        lines.append(
+            f"🧾 ¥{inv.get('amount', 0)} | "
+            f"{inv.get('companyName', '—')} | "
+            f"{inv.get('createTime', '')}"
+        )
+    return "\n".join(lines)
+
+
 @mcp.tool()
-async def apply_invoice(
-    invoice_type: int,
-    amount: float,
-    company_name: str,
-    tax_number: str,
-    email: str,
+async def manage_invoice(
+    action: str,
+    status: str = "pending",
+    page: int = 1,
+    page_size: int = 20,
+    invoice_type: int = 1,
+    amount: float = 0,
+    company_name: str = "",
+    tax_number: str = "",
+    email: str = "",
+    user_confirmed: bool = False,
+    confirmation_summary: str = "",
+    confirm_token: str = "",
 ) -> str:
-    """申请开具发票（B 端用工方）。
-
-    对应接口: invoiceInfo/applyInvoice (POST)
-
-    调用前须向用户确认开票信息。
+    """发票管理（list / apply）。
 
     Args:
-        invoice_type: 发票类型 1=增值税普通发票 2=增值税专用发票
-        amount: 开票金额（元）
-        company_name: 公司名称
-        tax_number: 税务登记号
-        email: 接收发票的邮箱
+        action: list（查询列表，只读）| apply（申请开票，须 user_confirmed + confirm_token）
+        status: list 时 pending=待开票 | issued=已开票
+        page, page_size: list 时分页
+        invoice_type: apply 时 1=普票 2=专票
+        amount, company_name, tax_number, email: apply 时必填
+        user_confirmed: apply 必须为 true
+        confirm_token: apply 时 prepare_write_confirmation 返回的令牌
 
     需 B 端授权 role=2。
     """
+    act = (action or "").strip().lower()
+    if act not in ("list", "apply"):
+        return json.dumps(
+            {"success": False, "error": "action 须为 list 或 apply"},
+            ensure_ascii=False,
+        )
+
+    if act == "list":
+        if status not in ("pending", "issued"):
+            return json.dumps(
+                {"success": False, "error": "status 须为 pending 或 issued"},
+                ensure_ascii=False,
+            )
+        try:
+            return await _format_invoice_list(status, page, page_size)
+        except Exception as e:
+            return json.dumps({"success": False, "error": str(e)}, ensure_ascii=False)
+
+    g = WriteGate(
+        "manage_invoice",
+        user_confirmed,
+        confirm_token=confirm_token,
+        confirmation_summary=confirmation_summary,
+        action=act,
+        invoice_type=invoice_type,
+        amount=amount,
+        company_name=company_name,
+        tax_number=tax_number,
+        email=email,
+    )
+    if g.blocked:
+        return g.blocked
+
     if invoice_type not in (1, 2):
-        return json.dumps({"success": False, "error": "invoice_type 必须为 1 或 2"}, ensure_ascii=False)
+        return g.finish(
+            json.dumps({"success": False, "error": "invoice_type 必须为 1 或 2"}, ensure_ascii=False),
+        )
     if amount <= 0:
-        return json.dumps({"success": False, "error": "开票金额必须大于 0"}, ensure_ascii=False)
+        return g.finish(
+            json.dumps({"success": False, "error": "开票金额必须大于 0"}, ensure_ascii=False),
+        )
+    if not company_name.strip() or not tax_number.strip() or not email.strip():
+        return g.finish(
+            json.dumps(
+                {"success": False, "error": "apply 须提供 company_name、tax_number、email"},
+                ensure_ascii=False,
+            )
+        )
 
     payload = {
         "invoiceType": invoice_type,
@@ -305,50 +521,13 @@ async def apply_invoice(
     try:
         result = await _req_b("POST", "invoiceInfo/applyInvoice", json=payload)
     except Exception as e:
-        return json.dumps({"success": False, "error": str(e)}, ensure_ascii=False)
+        return g.finish(json.dumps({"success": False, "error": str(e)}, ensure_ascii=False))
 
     if result.get("code") == 200:
-        return f"✅ 发票申请成功，金额 ¥{amount}，将发送至 {email}"
-    return json.dumps({"success": False, "error": result.get("message", "申请失败")}, ensure_ascii=False)
-
-
-@mcp.tool()
-async def get_invoice_list(status: str = "pending", page: int = 1, page_size: int = 20) -> str:
-    """查询发票申请列表（B 端）。
-
-    对应接口:
-    - pending: invoiceInfo/list (POST)
-    - issued: invoiceInfo/selectInvoice (POST)
-
-    Args:
-        status: pending=待开票 | issued=已开票
-        page: 页码
-        page_size: 每页数量
-
-    需 B 端授权 role=2。
-    """
-    payload = {"pageNum": page, "pageSize": page_size}
-    path = "invoiceInfo/list" if status == "pending" else "invoiceInfo/selectInvoice"
-    status_label = "待开票" if status == "pending" else "已开票"
-
-    try:
-        result = await _req_b("POST", path, json=payload)
-    except Exception as e:
-        return json.dumps({"success": False, "error": str(e)}, ensure_ascii=False)
-
-    items = result.get("data", {}).get("list", [])
-    total = result.get("data", {}).get("total", 0)
-    if not items:
-        return f"暂无{status_label}发票记录。"
-
-    lines = [f"发票列表（{status_label}，共{total}条）：\n"]
-    for inv in items:
-        lines.append(
-            f"🧾 ¥{inv.get('amount', 0)} | "
-            f"{inv.get('companyName', '—')} | "
-            f"{inv.get('createTime', '')}"
-        )
-    return "\n".join(lines)
+        return g.finish(f"✅ 发票申请成功，金额 ¥{amount}，将发送至 {email}")
+    return g.finish(
+        json.dumps({"success": False, "error": result.get("message", "申请失败")}, ensure_ascii=False),
+    )
 
 
 if __name__ == "__main__":

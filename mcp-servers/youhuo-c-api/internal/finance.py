@@ -11,7 +11,12 @@ import httpx
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 from shared_token_store import auth_store
 from tools.api_response import api_data, api_message, api_ok, parse_worker_balance
-from tools.youhuo_env import applet_base_url
+from tools.enterprise_balance import (
+    build_enterprise_balance_view,
+    parse_user_profile,
+    unwrap_balance_payload,
+)
+from tools.youhuo_env import applet_base_url, employ_base_url
 
 try:
     from mcp.server.fastmcp import FastMCP
@@ -22,10 +27,7 @@ except ImportError:
 mcp = FastMCP("youhuo-finance-api")
 
 BASE_URL = applet_base_url()
-EMPLOY_URL = os.getenv(
-    "YOUHUO_EMPLOY_URL",
-    "https://hopped-gateway-service-sops-test.hopped.com.cn/hopped-miniprogram-web/api/",
-)
+EMPLOY_URL = employ_base_url()
 
 
 def _require_auth(required_role: int | None = None) -> dict:
@@ -98,73 +100,47 @@ async def get_worker_balance() -> str:
                 f"保证金：¥{bond}\n"
                 f"可提现：¥{withdrawable}"
             ),
+            "withdraw_guide": (
+                "提现请前往有活小程序：我的 → 钱包 → 提现。"
+                "Agent 不支持代用户发起提现。"
+            ),
         },
         ensure_ascii=False,
         indent=2,
     )
-
-
-@mcp.tool()
-async def withdraw_balance(amount: float) -> str:
-    """零工发起提现（C 端）。
-
-    对应接口: Account/Withdraw (POST)
-
-    AI 不代用户确认提现，调用前须获得用户明确确认金额。
-
-    Args:
-        amount: 提现金额（元）
-
-    需 C 端授权 role=1。
-    """
-    if amount <= 0:
-        return json.dumps({"success": False, "error": "提现金额必须大于 0"}, ensure_ascii=False)
-
-    payload = {"amount": amount}
-    try:
-        result = await _req_c("POST", "Account/Withdraw", json=payload)
-    except Exception as e:
-        return json.dumps({"success": False, "error": str(e)}, ensure_ascii=False)
-
-    if api_ok(result):
-        return json.dumps(
-            {"success": True, "amount": amount, "message": f"✅ 提现申请已提交，金额 ¥{amount}"},
-            ensure_ascii=False,
-        )
-    return json.dumps({"success": False, "error": api_message(result, "提现失败")}, ensure_ascii=False)
 
 
 # ──── B 端：企业余额 / 明细 ────
 
 @mcp.tool()
 async def get_enterprise_balance() -> str:
-    """查询企业账户余额（积分 + 现金 + 体验金，B 端）。
+    """查询 B 端账户余额（对齐小程序字段，需 role=2 授权）。
 
-    对应接口: miniprogram/account/balance (GET)
-
-    需 B 端授权 role=2。
+    对应接口:
+    - miniprogram/account/balance (POST)
+    - user/login/getUserLoginDetail (GET)
     """
     try:
-        result = await _req_b("GET", "miniprogram/account/balance")
+        balance_result = await _req_b("POST", "miniprogram/account/balance", json={})
     except Exception as e:
         return json.dumps({"success": False, "error": str(e)}, ensure_ascii=False)
 
-    data = result.get("data", {})
-    return json.dumps(
-        {
-            "points_balance": data.get("pointsBalance", data.get("points", 0)),
-            "cash_balance": data.get("cashBalance", 0),
-            "exp_balance": data.get("expBalance", data.get("trialAmount", 0)),
-            "total_balance": data.get("totalBalance", 0),
-            "summary": (
-                f"积分余额：{data.get('pointsBalance', data.get('points', 0))} 分\n"
-                f"现金余额：¥{data.get('cashBalance', 0)}\n"
-                f"体验金：¥{data.get('expBalance', data.get('trialAmount', 0))}"
-            ),
-        },
-        ensure_ascii=False,
-        indent=2,
-    )
+    balance = unwrap_balance_payload(balance_result)
+    if not balance and not api_ok(balance_result):
+        return json.dumps(
+            {"success": False, "error": api_message(balance_result, "查询余额失败")},
+            ensure_ascii=False,
+        )
+
+    profile: dict = {}
+    try:
+        profile_result = await _req_b("GET", "user/login/getUserLoginDetail")
+        profile = parse_user_profile(profile_result)
+    except Exception:
+        pass
+
+    view = build_enterprise_balance_view(balance, profile)
+    return json.dumps({"success": True, **view}, ensure_ascii=False, indent=2)
 
 
 @mcp.tool()
@@ -211,7 +187,7 @@ async def pay_schedule_settlement(detail_id: int, remark: str = "") -> str:
     发布前须获得用户对结算金额和对象的明确确认。
 
     Args:
-        detail_id: 排班明细 ID（来自 workforce-dispatcher 的 get_schedule_detail_list）
+        detail_id: 排班明细 ID（来自 workforce-dispatcher 的 get_job_schedules）
         remark: 结算备注
 
     需 B 端授权 role=2。

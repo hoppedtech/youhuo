@@ -7,7 +7,7 @@ LABEL org.opencontainers.image.title="youhuo-c-api-mcp" \
       org.opencontainers.image.version="1.0.0" \
       org.opencontainers.image.description="有活 C 端找活 MCP Server (Hosted)"
 
-RUN apk add --no-cache python3 py3-pip curl \
+RUN apk add --no-cache python3 py3-pip curl font-wqy-microhei \
     && ln -sf python3 /usr/bin/python \
     && ln -sf pip3 /usr/bin/pip
 
@@ -22,8 +22,13 @@ COPY shared_token_store.py /app/
 COPY tools/ /app/tools/
 COPY youhuo-c-api/ /app/youhuo-c-api/
 
-# 生产网关由云托管环境变量 YOUHUO_BASE_URL 注入，勿在镜像内写 sops-test 默认值
-ENV PYTHONUNBUFFERED=1
+# 生产网关由云托管 YOUHUO_BASE_URL 注入；未配置时拒绝启动
+ENV PYTHONUNBUFFERED=1 \
+    YOUHUO_REQUIRE_BASE_URL=1 \
+    YOUHUO_REJECT_TEST_GATEWAY=1 \
+    YOUHUO_AUTH_DB_PATH=/tmp/youhuo_auth.db \
+    YOUHUO_MCP_CONFIRM_TOKEN_STORE=/tmp/youhuo_mcp_confirm_tokens.json \
+    YOUHUO_MCP_AUDIT_LOG_PATH=/tmp/youhuo_mcp_audit.log
 
 EXPOSE 80
 

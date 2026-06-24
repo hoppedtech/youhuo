@@ -2,7 +2,7 @@
 import httpx
 
 
-def build_qr_api_url(base_url: str, session_id: str, role: int, source_code: str = "") -> str:
+def build_qr_api_url(base_url: str, session_id: str, role: int, source_code: int = 0) -> str:
     base = base_url.rstrip("/") + "/"
     return f"{base}Personal/GetAIAuthQRCode?sessionId={session_id}&role={role}&sourceCode={source_code}"
 
@@ -11,7 +11,7 @@ async def fetch_qr_image_url(
     base_url: str,
     session_id: str,
     role: int,
-    source_code: str = "",
+    source_code: int = 0,
 ) -> tuple[str, str]:
     """调用生成二维码接口，返回 (图片直链, 接口地址)。
 

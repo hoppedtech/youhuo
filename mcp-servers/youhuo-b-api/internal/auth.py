@@ -14,6 +14,12 @@ from shared_token_store import auth_store
 from tools.qr_auth import fetch_qr_image_url
 from tools.token_util import normalize_bearer_token, token_user_info
 from tools.youhuo_env import applet_base_url, get_token_by_session_url
+from tools.mcp_write_guard import WriteGate
+from tools.auth_common import (
+    check_auth_status_from_cache,
+    finalize_authorization,
+    get_current_user_info_response,
+)
 
 # 延迟导入 mcp，避免未安装时崩溃
 try:
@@ -29,18 +35,18 @@ GET_TOKEN_BY_SESSION_URL = get_token_by_session_url()
 
 
 @mcp.tool()
-async def create_auth_session(role: int = 1, source_code: str = "") -> str:
+async def create_auth_session(role: int = 1, source_code: int = 0) -> str:
     """创建用户扫码授权会话，返回小程序码和会话ID。
 
     用户需要用手机微信扫描二维码，在小程序中完成登录授权。
     授权完成后，Token 会自动存入共享存储，其他 Server 可直接使用。
 
     复用现有接口: GET Personal/GetAIAuthQRCode?sessionId={session_id}&role={role}&sourceCode={source_code}
-    scene编码格式: sid={session_id}&roleid={role}&sc={source_code} (微信scene限制32字符)
+    scene编码格式: sid={session_id}&role={role}&sc={source_code} (微信scene限制32字符)
 
     Args:
         role: 用户角色。1=找活方(C端)，2=招工方(B端)。默认1
-        source_code: 来源标识，记录是哪个Agent触发的授权。可选，sid+roleid格式下最大约3字符；若需更长请缩短roleid→rid
+        source_code: 来源 Agent 编号（整数）。0 表示未指定
 
     Returns:
         JSON字符串，包含 session_id、qr_code_url（小程序码图片地址）、instruction
@@ -89,19 +95,9 @@ async def check_auth_status(session_id: str) -> str:
         授权成功时额外返回 is_new_user（true=新用户首次注册）
     """
     # 先查本地缓存
-    local = auth_store.get_token(session_id)
-    if local and local.get("status") == "authorized" and local.get("token"):
-        user_info = local.get("user_info") or {}
-        return json.dumps(
-            {
-                "status": "authorized",
-                "role": local["role"],
-                "user_name": user_info.get("name", ""),
-                "token_preview": local["token"][:8] + "..." if local["token"] else None,
-                "is_new_user": user_info.get("is_new_user", False),
-            },
-            ensure_ascii=False,
-        )
+    cached = check_auth_status_from_cache(session_id)
+    if cached:
+        return cached
 
     # 轮询后端新增接口
     try:
@@ -125,24 +121,12 @@ async def check_auth_status(session_id: str) -> str:
                 raw_token = token_data if isinstance(token_data, str) else json.dumps(token_data)
                 token = normalize_bearer_token(raw_token)
                 user_info = token_user_info(token)
-                user_info["is_new_user"] = is_new_user
-                auth_store.set_token(
+                return finalize_authorization(
                     session_id,
                     token,
-                    user_info=user_info,
-                    expires_in=7200,
+                    user_info,
+                    is_new_user=is_new_user,
                 )
-                result = {
-                    "status": "authorized",
-                    "token_preview": token[:12] + "..." if len(token) > 12 else "...",
-                    "is_new_user": is_new_user,
-                    "user_name": user_info.get("name") or "",
-                    "phone": user_info.get("phone") or "",
-                    "role": int(user_info["loginroletype"]) if user_info.get("loginroletype") else None,
-                }
-                if is_new_user:
-                    result["message"] = "欢迎首次使用有活！已为您自动完成注册。"
-                return json.dumps(result, ensure_ascii=False)
     except Exception as e:
         # 后端接口未就绪时静默失败
         return json.dumps({"status": "pending", "message": f"等待用户扫码授权... ({type(e).__name__})"}, ensure_ascii=False)
@@ -157,33 +141,36 @@ async def get_current_user_info() -> str:
     Returns:
         JSON字符串，包含用户姓名、角色、认证状态等
     """
-    info = auth_store.get_current_token()
-    if not info or not info.get("token"):
-        return json.dumps(
-            {"status": "unauthorized", "message": "当前未授权，请先调用 create_auth_session 完成扫码授权"},
-            ensure_ascii=False,
-        )
-    return json.dumps(
-        {
-            "status": "authorized",
-            "role": info["role"],
-            "role_name": "招工方" if info["role"] == 2 else "找活方",
-            "user_info": info.get("user_info"),
-        },
-        ensure_ascii=False,
-    )
+    return get_current_user_info_response()
 
 
 @mcp.tool()
-async def revoke_auth() -> str:
+async def revoke_auth(
+    user_confirmed: bool = False,
+    confirmation_summary: str = "",
+    confirm_token: str = "",
+) -> str:
     """注销当前授权会话，清除 Token。
 
-    用户主动退出或切换账号时调用。
+    用户主动退出或切换账号时调用。须 user_confirmed=true。
+
+    Args:
+        user_confirmed: 必须为 true，表示用户已明确确认注销
+        confirmation_summary: 可选，用户确认原话摘要
     """
+    g = WriteGate(
+        "revoke_auth",
+        user_confirmed,
+        confirm_token=confirm_token,
+        confirmation_summary=confirmation_summary,
+    )
+    if g.blocked:
+        return g.blocked
+
     if not auth_store.get_current_token():
-        return "当前没有活跃的授权会话"
+        return g.finish("当前没有活跃的授权会话")
     auth_store.revoke_current_session()
-    return "✅ 授权已注销，Token 已清除"
+    return g.finish("✅ 授权已注销，Token 已清除")
 
 
 if __name__ == "__main__":

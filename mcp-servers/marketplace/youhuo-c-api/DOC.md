@@ -7,7 +7,7 @@
 - 微信扫码授权（C 端 role=1）
 - 岗位搜索（`Job/GetSearchList`，对齐小程序参数）/ 智能推荐
 - 岗位详情、报名资料检查、报名接单、取消报名
-- 我的订单、干活日历、余额查询与提现
+- 我的订单、干活日历、余额查询（提现请至小程序）
 
 ## 推荐搭配 Skill
 
@@ -17,16 +17,17 @@
 
 Skill 源码：`skills/job-seeker/`（安装见 [skills/README.md](https://github.com/hoppedtech/youhuo/blob/main/skills/README.md)）
 
-## 核心 Tools（25）
+## 核心 Tools（约 24）
 
 | 分类 | Tools |
 |:---|:---|
 | 授权 | `create_auth_session`, `check_auth_status`, `get_current_user_info`, `revoke_auth` |
+| 写确认 | `prepare_write_confirmation` |
 | 找活 | `search_jobs`, `get_recommend_jobs`, `search_piece_tasks`, `get_job_detail` |
-| 报名 | `get_entry_job_requirements`, `submit_job_registration`, `apply_job`, `cancel_apply`, `check_apply_eligibility` |
-| 订单 | `get_my_work_orders`, `get_my_tasks`, `get_task_detail`, `get_work_calendar` |
-| 画像 | `get_user_profile`, `get_auth_status`, `get_skill_tags`, `get_worker_profile`, `get_work_preferences`, `update_work_preferences` |
-| 财务 | `get_worker_balance`, `withdraw_balance` |
+| 报名 | `check_apply_readiness`, `submit_job_registration`, `apply_job`, `apply_job_standby`, `cancel_apply`, `cancel_job_standby` |
+| 订单 | `get_my_work_orders`, `get_task_detail`, `cancel_order`, `get_work_calendar` |
+| 画像 | `get_user_profile`（`sections=profile,preferences,auth,resume`）, `get_skill_tags`, `update_work_preferences`, `manage_resume` |
+| 财务 | `get_worker_balance`（含小程序提现引导，无 MCP 提现 Tool） |
 
 ### 搜索说明
 
@@ -46,7 +47,7 @@ Skill 源码：`skills/job-seeker/`（安装见 [skills/README.md](https://githu
 **Hosted 部署（腾讯云 MCP 广场）：**
 
 - 每位用户通过**独立 SSE URL** 连接，会话相互隔离
-- Token 保存在容器内 SQLite，默认路径 `/tmp/youhuo_auth.db`（无需配置）
+- Token 保存在容器 SQLite，默认 **`/tmp/youhuo_auth.db`**（镜像 `YOUHUO_AUTH_DB_PATH`）
 - Token 有效期约 **2 小时**；**容器重启或实例重建后需重新扫码授权**
 - 无需用户配置 API Key
 
@@ -107,7 +108,7 @@ docker build -f marketplace/youhuo-c-api/Dockerfile -t youhuo-c-api-mcp:1.0.0 .
 YOUHUO_BASE_URL=https://hopped-gateway-service-sops.hopped.com.cn
 ```
 
-**请勿在镜像内写死测试环境域名**；由云托管控制台注入 `YOUHUO_BASE_URL`。
+镜像已内置 `YOUHUO_REQUIRE_BASE_URL=1`：未注入生产网关时容器拒绝启动。可选路径变量见上文「授权与会话」。
 
 ### IDE 配置（SSE）
 
@@ -128,10 +129,17 @@ YOUHUO_BASE_URL=https://hopped-gateway-service-sops.hopped.com.cn
 
 ## 安全说明
 
-- 报名（`apply_job`）、取消报名（`cancel_apply`）、提现（`withdraw_balance`）等写操作需在对话中**用户明确确认**后再调用
+- **P0/P1 写操作**（`apply_job`、`cancel_apply`、`cancel_order`、`submit_job_registration`、`revoke_auth`）须两阶段确认：先 `prepare_write_confirmation` 获 `confirm_token`，再 `user_confirmed=true` + 相同参数调用
+- **P2 低危写操作**（`update_work_preferences`、`manage_resume`（upload/generate/delete）、候补类）仅需 `user_confirmed=true`
+- **提现**：Agent 不代用户提现；查询余额后引导至有活小程序「我的 → 钱包 → 提现」
 - 手机号、姓名等隐私字段脱敏展示
 - Token 仅通过用户本人微信扫码获取，请勿泄露 SSE URL 或会话信息
-- 报名前建议调用 `get_entry_job_requirements` 检查资料与班次
+- 报名前建议调用 `check_apply_readiness(job_id)` 检查权限与资料
+
+| 变量 | 说明 |
+|:---|:---|
+| `YOUHUO_MCP_CONFIRM_TOKEN_REQUIRED` | 两阶段 token 开关，默认 `true` |
+| `YOUHUO_MCP_WRITE_ENABLED` | 写操作总开关，默认 `true` |
 
 ## 后端依赖
 
