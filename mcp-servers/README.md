@@ -120,16 +120,16 @@ python youhuo-c-api/server.py
 
 默认使用测试环境 `hopped-gateway-service-sops-test.hopped.com.cn`。
 
-## 市场上架（本地 marketplace/）
+## 市场上架（marketplace/）
 
-CloudBase / 腾讯云 MCP 广场的 Docker 与上架文件在 **`marketplace/`**（已 `.gitignore`，不推送 GitHub）。维护者本地保留该目录后，在 `mcp-servers/` 根目录构建镜像，例如：
+CloudBase / 腾讯云 MCP 广场的 Docker、meta、DOC 与入驻文案在 **`marketplace/`**。在 `mcp-servers/` 根目录构建镜像：
 
 ```bash
 docker build -f marketplace/youhuo-b-api/Dockerfile -t youhuo-b-api-mcp:1.0.0 .
 docker build -f marketplace/youhuo-c-api/Dockerfile -t youhuo-c-api-mcp:1.0.0 .
 ```
 
-详见本地 `marketplace/README.md`（公开仓库克隆者无此文件）。
+入驻申请表填写文案见 `marketplace/APPLICATION-*.md`；上架检查清单见 `marketplace/README.md`。
 
 ## 后端依赖
 

@@ -1,0 +1,17 @@
+{
+  "name": "youhuo-b-api",
+  "title": "有活 · B端招工 MCP",
+  "description": "有活平台 B 端（招工方）MCP Server：微信扫码授权、岗位发布、众包任务、排班调度、结算发票。每用户独立 Hosted URL，会话隔离。推荐搭配 job-planner、workforce-dispatcher Skill。",
+  "author": {
+    "name": "有活团队"
+  },
+  "gitUrl": "https://github.com/hoppedtech/youhuo/tree/main/mcp-servers/marketplace/youhuo-b-api",
+  "version": "1.0.0",
+  "tags": ["灵活用工", "招工", "排班", "社区 MCP"],
+  "port": 80,
+  "deployMode": "hosted",
+  "logo": [],
+  "env_params": {
+    "YOUHUO_BASE_URL": "有活 API 网关域名。切换生产/测试只需改此项，例如生产 https://hopped-gateway-service-sops.hopped.com.cn ，测试 https://hopped-gateway-service-sops-test.hopped.com.cn （hopped-applet-service、hopped-miniprogram-web、hopped-platform-service 路径由代码自动拼接）"
+  }
+}
