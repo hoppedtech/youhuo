@@ -184,6 +184,7 @@ async def preview_publish_cost(
     if headcount > 0 and hourly_wage > 0 and schedule_start and schedule_end:
         hours = _hours_between(schedule_start, schedule_end)
         labor = round(headcount * hours * hourly_wage, 2)
+        labor_formula = f"{headcount}人 × {hours}h × ¥{hourly_wage} = ¥{labor}"
         out.update(
             {
                 "headcount": headcount,
@@ -193,9 +194,9 @@ async def preview_publish_cost(
                 "job_date": job_date or date.today().isoformat(),
                 "hours_per_shift": hours,
                 "labor_amount_estimate": labor,
-                "labor_formula": f"{headcount}人 × {hours}h × ¥{hourly_wage} = ¥{labor}",
+                "labor_formula": labor_formula,
                 "summary": (
-                    f"预估零工工钱：¥{labor}（{out['labor_formula']}）\n"
+                    f"预估零工工钱：¥{labor}（{labor_formula}）\n"
                     f"平台服务费：待 publish_jd 后 get_job_publish_payment 查询\n"
                     f"应付合计：工钱 + 服务费（支付前须展示并获用户确认）"
                 ),
@@ -296,15 +297,22 @@ async def _collect_recruit_addresses(reference_job_id: int = 0) -> list[dict]:
     return addresses
 
 
+def _format_recruit_address_line(a: dict) -> str:
+    ref = int(a.get("reference_job_id") or 0)
+    suffix = f"（参考岗位 {ref}）" if ref > 0 else ""
+    incomplete = " · 待完善" if a.get("complete_info") is False else ""
+    return (
+        f"  • [{a['recruit_address_id']}] {a.get('store_name') or '—'} | "
+        f"{a.get('work_address')}{incomplete}{suffix}"
+    )
+
+
 def _format_recruit_addresses(addresses: list[dict]) -> str:
     if not addresses:
-        return "未找到可用干活地点。请提供 job_id 或先在小程序中添加门店地址。"
+        return "未找到可用干活地点。请调用 get_recruit_addresses 或 save_recruit_address 录入。"
     lines = ["可用干活地点：\n"]
     for a in addresses:
-        lines.append(
-            f"  • [{a['recruit_address_id']}] {a.get('store_name') or '—'} | "
-            f"{a.get('work_address')}（参考岗位 {a['reference_job_id']}）"
-        )
+        lines.append(_format_recruit_address_line(a))
     return "\n".join(lines)
 
 
@@ -881,13 +889,14 @@ async def pay_hourly_job(
                 parse_user_profile(profile_result),
             )
             available = float(balance_view.get("primary_pay_balance") or 0)
+            balance_label = balance_view.get("primary_pay_balance_label") or "可用余额"
             if available < balance_payment:
                 return g.finish(
                     json.dumps(
                         {
                             "success": False,
                             "reason": "BALANCE_INSUFFICIENT",
-                            "message": f"个人余额 ¥{available} 不足，需支付 ¥{balance_payment}",
+                            "message": f"{balance_label} ¥{available} 不足，需支付 ¥{balance_payment}",
                             "guide": "请前往有活小程序充值后再支付。",
                             "job_id": job_id,
                         },

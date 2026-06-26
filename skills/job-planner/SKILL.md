@@ -68,7 +68,7 @@ B 端操作前确认用户已授权（role=2）：
 2. 调用 `get_enterprise_finance(sections=balance)` 查询账户余额
 3. 按岗位类型对比余额：
    - **长期招（2/5）**：对比 `points_balance` 与预估积分
-   - **小时工/计件工（4/6）**：对比 `cash_balance`；**平台服务费无法发布前精确计算**，须创建待发布岗位后查询
+   - **小时工/计件工（4/6）**：对比 `primary_pay_balance`（及 `primary_pay_balance_label`）；**平台服务费无法发布前精确计算**，须创建待发布岗位后查询
 
 **小时工/计件工费用展示（两步确认，不可跳过）**：
 
