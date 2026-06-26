@@ -63,6 +63,13 @@ from tools.cooperate_workers import (
     parse_worker_user_ids,
     resolve_cooperate_tab,
 )
+from tools.recruit_address import (
+    address_record_to_summary,
+    build_save_recruit_address_payload,
+    fetch_recruit_address_list,
+    find_best_address_match,
+    format_recruit_addresses_text,
+)
 
 try:
     from mcp.server.fastmcp import FastMCP
@@ -229,6 +236,27 @@ async def _build_publish_template(job_id: int) -> dict:
 
 
 async def _collect_recruit_addresses(reference_job_id: int = 0) -> list[dict]:
+    """优先从 userRecruitAddress/list 读取；无数据时回退到历史岗位详情。"""
+    try:
+        listed = await fetch_recruit_address_list(_req, page=1, page_size=50)
+        records = listed.get("records") or []
+        if records:
+            return [
+                {
+                    "recruit_address_id": r.get("id"),
+                    "store_name": r.get("storeAbbreviation"),
+                    "work_address": r.get("workAddress"),
+                    "city": r.get("city"),
+                    "district": r.get("district"),
+                    "complete_info": r.get("completeInfo"),
+                    "reference_job_id": 0,
+                }
+                for r in records
+                if r.get("id")
+            ]
+    except Exception:
+        pass
+
     addresses: list[dict] = []
     seen: set[int] = set()
 
@@ -328,6 +356,215 @@ async def get_publish_reference(job_id: int = 0, mode: str = "both") -> str:
     if len(text_blocks) == 1:
         return text_blocks[0]
     return json.dumps(parts, ensure_ascii=False, indent=2)
+
+
+@mcp.tool()
+async def get_recruit_addresses(
+    page: int = 1,
+    page_size: int = 20,
+    address_query: str = "",
+    format: str = "text",
+) -> str:
+    """查询企业已录入的用工地点，并可匹配用户口述地址。
+
+    对应接口: userRecruitAddress/list (POST)
+
+    发布小时工/计件工前，先调用本 Tool 获取 recruit_address_id。
+    若 address_query 与已有地址不一致，须向用户确认后调用 save_recruit_address 录入。
+
+    Args:
+        page: 页码
+        page_size: 每页数量
+        address_query: 可选，用户口述地址；返回 matched 匹配结果
+        format: text（默认）或 json
+    """
+    try:
+        listed = await fetch_recruit_address_list(_req, page=page, page_size=page_size)
+    except Exception as e:
+        return json.dumps({"success": False, "error": str(e)}, ensure_ascii=False)
+
+    records = listed.get("records") or []
+    query = (address_query or "").strip()
+    matched = find_best_address_match(records, query) if query else None
+
+    if (format or "text").strip().lower() == "json":
+        return json.dumps(
+            {
+                "success": True,
+                "total": listed.get("total", len(records)),
+                "page": page,
+                "page_size": page_size,
+                "address_query": query or None,
+                "matched": matched is not None,
+                "match": matched,
+                "addresses": [address_record_to_summary(r) for r in records],
+                "guide": (
+                    None
+                    if matched or not query
+                    else "无匹配地址时可调用 save_recruit_address 录入（须 prepare_write_confirmation）"
+                ),
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+
+    return format_recruit_addresses_text(
+        records,
+        total=int(listed.get("total") or len(records)),
+        matched=matched,
+        query=query,
+    )
+
+
+@mcp.tool()
+async def save_recruit_address(
+    work_address: str,
+    store_name: str,
+    floor_num: str,
+    house_num: str,
+    contacts: str,
+    contact_phone: str,
+    street_number: str = "",
+    province: str = "",
+    city: str = "",
+    district: str = "",
+    short_address: str = "",
+    lng: float = 0,
+    lat: float = 0,
+    default_address: bool = False,
+    alternate_phone: str = "",
+    address_id: int = 0,
+    user_confirmed: bool = False,
+    confirmation_summary: str = "",
+    confirm_token: str = "",
+) -> str:
+    """录入新的用工地点到企业地址库。
+
+    对应接口: userRecruitAddress/save (POST)
+
+    ⚠️ 写操作须先 prepare_write_confirmation，再 user_confirmed=true + confirm_token。
+    建议在 get_recruit_addresses(address_query=...) 未匹配到已有地址、
+    且已向用户展示待录入信息并获确认后再调用。
+
+    Args:
+        work_address: 详细工作地址（地图选点后的完整地址）
+        store_name: 门店简称（必填，最多15字）
+        floor_num: 楼层号
+        house_num: 门牌号
+        contacts: 联系人姓名
+        contact_phone: 联系电话（11位手机号）
+        street_number: 地点/POI 名称（如「竞园27C」，默认同 store_name）
+        province: 省
+        city: 市
+        district: 区
+        short_address: 短地址（如「朝阳区百子湾南二路」）
+        lng: 经度（强烈建议提供，便于打卡定位）
+        lat: 纬度
+        default_address: 是否设为默认地址
+        alternate_phone: 备用电话
+        address_id: 编辑已有地址时传入 ID；新建留 0
+        user_confirmed: 必须为 true
+        confirm_token: prepare_write_confirmation 返回的一次性令牌
+        confirmation_summary: 用户确认原话摘要
+    """
+    g = WriteGate(
+        "save_recruit_address",
+        user_confirmed,
+        confirm_token=confirm_token,
+        confirmation_summary=confirmation_summary,
+        work_address=work_address,
+        store_name=store_name,
+        floor_num=floor_num,
+        house_num=house_num,
+        contacts=contacts,
+        contact_phone=contact_phone,
+        street_number=street_number,
+        province=province,
+        city=city,
+        district=district,
+        short_address=short_address,
+        lng=lng,
+        lat=lat,
+        default_address=default_address,
+        alternate_phone=alternate_phone,
+        address_id=address_id,
+    )
+    if g.blocked:
+        return g.blocked
+
+    required = {
+        "work_address": work_address,
+        "store_name": store_name,
+        "floor_num": floor_num,
+        "house_num": house_num,
+        "contacts": contacts,
+        "contact_phone": contact_phone,
+    }
+    missing = [k for k, v in required.items() if not str(v or "").strip()]
+    if missing:
+        return g.finish(
+            json.dumps(
+                {
+                    "success": False,
+                    "error": f"缺少必填项：{', '.join(missing)}",
+                    "guide": "请向用户追问门店简称、楼层、门牌、联系人、联系电话",
+                },
+                ensure_ascii=False,
+            ),
+        )
+
+    phone = str(contact_phone).strip()
+    if len(phone) != 11 or not phone.isdigit():
+        return g.finish(
+            json.dumps({"success": False, "error": "contact_phone 须为 11 位手机号"}, ensure_ascii=False),
+        )
+
+    payload = build_save_recruit_address_payload(
+        work_address=work_address,
+        store_name=store_name,
+        floor_num=floor_num,
+        house_num=house_num,
+        contacts=contacts,
+        contact_phone=phone,
+        street_number=street_number,
+        province=province,
+        city=city,
+        district=district,
+        short_address=short_address,
+        lng=lng if lng else None,
+        lat=lat if lat else None,
+        default_address=default_address,
+        alternate_phone=alternate_phone,
+        address_id=address_id,
+    )
+
+    try:
+        result = await _req("POST", "userRecruitAddress/save", json=payload)
+    except Exception as e:
+        return g.finish(json.dumps({"success": False, "error": str(e)}, ensure_ascii=False))
+
+    if not api_ok(result):
+        return g.finish(
+            json.dumps({"success": False, "error": api_message(result, "录入用工地点失败")}, ensure_ascii=False),
+        )
+
+    data = api_data(result)
+    if not isinstance(data, dict):
+        data = {}
+    summary = address_record_to_summary(data)
+    return g.finish(
+        json.dumps(
+            {
+                "success": True,
+                "message": "用工地点已录入",
+                "recruit_address_id": summary.get("recruit_address_id"),
+                **summary,
+                "next_step": "可在 publish_jd 中传入 recruit_address_id 发布岗位",
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+    )
 
 
 @mcp.tool()

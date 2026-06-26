@@ -66,7 +66,7 @@ python youhuo-c-api/server.py
 
 **授权**：`create_auth_session`（固定 role=2）、`check_auth_status`、`get_current_user_info`、`revoke_auth`
 
-**岗位发布**（job-planner）：`preview_publish_cost`、`get_publish_reference`、`get_job_publish_catalog`、`publish_jd`、`get_job_publish_payment`、`pay_hourly_job`、`pay_publish_points`、`get_enterprise_finance`
+**岗位发布**（job-planner）：`preview_publish_cost`、`get_publish_reference`、`get_recruit_addresses`、`save_recruit_address`、`get_job_publish_catalog`、`publish_jd`、`get_job_publish_payment`、`pay_hourly_job`、`pay_publish_points`、`get_enterprise_finance`
 
 **众包**（job-planner）：`get_task_categories`、`publish_task`、`get_task_orders`、`accept_delivery`
 

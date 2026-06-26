@@ -39,6 +39,7 @@ B 端操作前确认用户已授权（role=2）：
 |:---|:---|
 | 岗位名称/工作内容 | 餐厅服务员、仓库搬运工 |
 | 工作地点（城市+区） | 深圳市南山区科技园 |
+| 门店简称/楼层/门牌 | 科技园店 / 3层 / 301（新地址录入时必填） |
 | 招募人数 | 3人 |
 | 工作时间/排班 | 每天9-18点，周一到周六 |
 | 薪资预算 | 200-250元/天 或 25-30元/小时 |
@@ -50,6 +51,7 @@ B 端操作前确认用户已授权（role=2）：
 
 按需调用（用户已明确技能/分类时可跳过）：
 - `get_job_publish_catalog(sections=work_categories,skills,benefits)` — 工作分类、技能、福利标签
+- `get_recruit_addresses(address_query=用户口述地址)` — 匹配已有用工地点；无匹配则追问门店简称/楼层/门牌/联系人后 `save_recruit_address`
 - 众包任务额外调用 `get_task_categories` — 任务分类
 
 ### 第三步：方案呈现
@@ -119,6 +121,7 @@ B 端操作前确认用户已授权（role=2）：
 | 扫码授权 | `create_auth_session()` | youhuo-b-api |
 | 发岗目录 | `get_job_publish_catalog(sections=...)` | youhuo-b-api |
 | 发布参考 | `get_publish_reference(job_id?, mode=template\|addresses\|both)` | youhuo-b-api |
+| 用工地点 | `get_recruit_addresses(address_query?)` / `save_recruit_address` | youhuo-b-api |
 | 费用预估 | `preview_publish_cost` | youhuo-b-api |
 | 账户余额 | `get_enterprise_finance(sections=balance)` | youhuo-b-api |
 | 写操作确认 | `prepare_write_confirmation` | youhuo-b-api |
@@ -160,6 +163,7 @@ B 端操作前确认用户已授权（role=2）：
 | 4 | 用户明确「确认」后先 prepare，再带 confirm_token 调用 `publish_jd` / `publish_task` / `pay_publish_points` | 必须 |
 | 8 | 不代充值、不拉起支付 | 禁止 |
 | 9 | 岗位/班次/地址信息不全先追问 | 必须 |
+| 9a | 新地址须 get_recruit_addresses 匹配后再 save_recruit_address（两阶段 confirm） | 必须 |
 | 10 | 不虚构地址、薪资、人数 | 禁止 |
 
 调度、考勤、结算相关检查见 **workforce-dispatcher** Skill。
