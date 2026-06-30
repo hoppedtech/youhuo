@@ -31,3 +31,11 @@ docs/
 # Legacy archives
 youhuo-auth-service.zip
 youhuo-hire-api.zip
+marketplace/APPLICATION-common.md
+marketplace/APPLICATION-youhuo-b-api.md
+marketplace/APPLICATION-youhuo-c-api.md
+marketplace/TKE-DEPLOY.md
+marketplace/youhuo-b-api/Dockerfile
+marketplace/youhuo-c-api/Dockerfile
+
+
