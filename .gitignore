@@ -50,3 +50,11 @@ mcp-servers/*.zip
 
 # Docker / 日志
 *.log
+
+# marketplace 部署产物（本地维护；DOC / meta.json / requirements.txt 仍提交）
+mcp-servers/marketplace/APPLICATION-common.md
+mcp-servers/marketplace/APPLICATION-youhuo-b-api.md
+mcp-servers/marketplace/APPLICATION-youhuo-c-api.md
+mcp-servers/marketplace/TKE-DEPLOY.md
+mcp-servers/marketplace/youhuo-b-api/Dockerfile
+mcp-servers/marketplace/youhuo-c-api/Dockerfile

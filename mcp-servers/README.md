@@ -34,10 +34,10 @@ mcp-servers/
 │   ├── server.py               # ★ C 端统一入口
 │   └── internal/               # auth / guard / worker / profile / finance
 ├── mcp.json                    # 本地 stdio 配置
-└── .dockerignore               # 镜像构建排除项（marketplace/ 在本地维护，未纳入 GitHub）
+└── .dockerignore               # 镜像构建排除项（入驻文案、TKE 文档等）
 ```
 
-> `marketplace/`（Dockerfile、`meta.json`、广场 DOC）在 **`.gitignore` 中**，仅维护者本地保留，公开克隆不包含该目录。
+> `marketplace/` 中 **入驻申请表、TKE 部署文档、Dockerfile** 在 **`.gitignore` 中**（仅维护者本地保留）；`DOC.md`、`meta.json`、`requirements.txt` 仍随仓库发布。
 
 ## 快速开始
 
