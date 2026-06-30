@@ -25,14 +25,41 @@ youhuo/
 
 ## 快速开始
 
-### 1. 克隆仓库
+### 方式一：远程安装（推荐）
+
+大多数用户**无需克隆仓库**，只需在 Cursor / WorkBuddy 的 MCP 配置中加入（按需启用 B 端和/或 C 端）：
+
+```json
+{
+  "mcpServers": {
+    "youhuo-b-api": {
+      "url": "https://mcp-server.hopped.com.cn/b/mcp",
+      "transportType": "streamable-http",
+      "disabled": false
+    },
+    "youhuo-c-api": {
+      "url": "https://mcp-server.hopped.com.cn/c/mcp",
+      "transportType": "streamable-http",
+      "disabled": false
+    }
+  }
+}
+```
+
+然后安装 Agent Skills（见下方步骤 2），扫码授权即可使用。详细说明见 [`mcp-servers/marketplace/youhuo-b-api/DOC.md`](mcp-servers/marketplace/youhuo-b-api/DOC.md)、[`mcp-servers/marketplace/youhuo-c-api/DOC.md`](mcp-servers/marketplace/youhuo-c-api/DOC.md)。
+
+### 方式二：本地开发（stdio）
+
+适用于二次开发或联调测试。
+
+#### 1. 克隆仓库
 
 ```bash
 git clone https://github.com/hoppedtech/youhuo.git
 cd youhuo
 ```
 
-### 2. 安装 MCP 依赖
+#### 2. 安装 MCP 依赖
 
 ```bash
 cd mcp-servers
@@ -41,7 +68,7 @@ pip install mcp httpx
 
 C 端若使用简历生成/上传，还需：`pip install fpdf2 cos-python-sdk-v5`
 
-### 3. 配置环境变量
+#### 3. 配置环境变量
 
 复制示例并设置网关域名（**只需一项**）：
 
@@ -56,13 +83,13 @@ cp .env.example .env
 
 业务路径（`hopped-applet-service/api/` 等）由代码自动拼接，无需单独配置。
 
-### 4. 配置 Cursor MCP
+#### 4. 配置 Cursor MCP
 
 将 `.cursor/mcp.json` 复制到你的项目根目录，或合并到全局 Cursor MCP 配置。根据实际克隆路径调整 `args` 中的 `server.py` 路径。
 
 启动后可见 `youhuo-b-api` 与 `youhuo-c-api` 两个 Server。
 
-### 5. 安装 Agent Skills（推荐）
+### 安装 Agent Skills（推荐）
 
 Skill 源码在 `skills/` 目录。复制到 Cursor 全局目录后，**任意项目**均可自动激活：
 
@@ -78,7 +105,7 @@ Copy-Item -Recurse -Force skills\workforce-dispatcher "$skills\workforce-dispatc
 
 更多说明见 [`skills/README.md`](skills/README.md)。
 
-### 6. 授权流程
+### 授权流程
 
 1. 调用 `create_auth_session` 获取小程序码
 2. 用户微信扫码登录有活小程序

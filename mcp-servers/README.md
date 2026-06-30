@@ -41,6 +41,31 @@ mcp-servers/
 
 ## 快速开始
 
+**推荐远程安装**（无需克隆仓库与 Python 环境）。本地 stdio 适用于开发调试，见下文「本地开发」。
+
+在 Cursor / WorkBuddy 的 `.cursor/mcp.json` 中按需启用：
+
+```json
+{
+  "mcpServers": {
+    "youhuo-b-api": {
+      "url": "https://mcp-server.hopped.com.cn/b/mcp",
+      "transportType": "streamable-http",
+      "disabled": false
+    },
+    "youhuo-c-api": {
+      "url": "https://mcp-server.hopped.com.cn/c/mcp",
+      "transportType": "streamable-http",
+      "disabled": false
+    }
+  }
+}
+```
+
+首次使用：`create_auth_session` → 微信扫码 → `check_auth_status`。详见 [`marketplace/youhuo-b-api/DOC.md`](marketplace/youhuo-b-api/DOC.md)、[`marketplace/youhuo-c-api/DOC.md`](marketplace/youhuo-c-api/DOC.md)。
+
+### 本地开发（stdio）
+
 ```bash
 cd mcp-servers
 pip install mcp httpx
@@ -53,14 +78,16 @@ pip install fpdf2 cos-python-sdk-v5
 python youhuo-c-api/server.py
 ```
 
-## MCP 配置（Cursor / WorkBuddy）
+需配置 `YOUHUO_BASE_URL`，见 `.env.example` 与 `mcp-servers/mcp.json`。
 
-使用 `.cursor/mcp.json` 或 `mcp-servers/mcp.json`，**只需配置 2 个 Server**：
+## MCP 配置（Cursor / WorkBuddy）
 
 | Server | 角色 | 对应 Skill |
 |:---|:---|:---|
 | `youhuo-b-api` | 招工方 (B) | job-planner, workforce-dispatcher |
 | `youhuo-c-api` | 找活方 (C) | job-seeker |
+
+**推荐远程安装**（见上文「快速开始」）。本地 stdio 使用 `mcp-servers/mcp.json` 模板，需自行配置 `YOUHUO_BASE_URL`。
 
 ## youhuo-b-api Tool 清单
 

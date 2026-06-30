@@ -1,11 +1,11 @@
 # 有活 · C端找活 MCP（youhuo-c-api）
 
-面向**找活方（零工）**的 MCP Server，支持从搜岗位到报名接单的完整闭环。
+面向**找活方（零工）**的 MCP Server，支持从搜零工，岗位到报名接单的完整闭环。
 
 ## 功能亮点
 
-- 微信扫码授权（C 端 role=1）
-- 岗位搜索（`Job/GetSearchList`，对齐小程序参数）/ 智能推荐
+- 微信扫码授权（C 端 ）
+- 零活/工作岗位搜索（对齐小程序参数）/ 智能推荐
 - 岗位详情、报名资料检查、报名接单、取消报名
 - 我的订单、干活日历、余额查询（提现请至小程序）
 
@@ -44,34 +44,39 @@ Skill 源码：`skills/job-seeker/`（安装见 [skills/README.md](https://githu
 3. 轮询 `check_auth_status` 直至 `authorized`
 4. 后续 Tool 自动携带 Token
 
-**Hosted 部署（腾讯云 MCP 广场）：**
+**远程部署：** 无需 API Key；Token 有效期约 **2 小时**；容器重启或会话过期后需重新微信扫码。
 
-- 每位用户通过**独立 SSE URL** 连接，会话相互隔离
-- Token 保存在容器 SQLite，默认 **`/tmp/youhuo_auth.db`**（镜像 `YOUHUO_AUTH_DB_PATH`）
-- Token 有效期约 **2 小时**；**容器重启或实例重建后需重新扫码授权**
-- 无需用户配置 API Key
+## 安装
 
-## 环境变量
+**推荐大多数用户使用远程安装**：无需克隆仓库、安装 Python 或配置网关，连接生产环境即可使用。
 
-广场 / 云托管**只需配置网关域名** `YOUHUO_BASE_URL`。业务路径 `hopped-applet-service/api/` 及扫码地址 `{域名}/hopped-applet-service/api/Login/GetTokenBySession` 由代码自动拼接。
+### 远程安装（推荐）
 
-| 变量 | 必填 | 说明 |
-|:---|:---|:---|
-| `YOUHUO_BASE_URL` | 是 | 有活 API 网关域名（可带 `https://`，也可只写主机名） |
+在 Cursor / WorkBuddy 的 `.cursor/mcp.json`（或客户端 MCP 配置）中填入：
 
-### 环境对照
-
-| 环境 | `YOUHUO_BASE_URL` |
-|:---|:---|
-| **生产（广场上架）** | `https://hopped-gateway-service-sops.hopped.com.cn` |
-| **测试 / 本地开发** | `https://hopped-gateway-service-sops-test.hopped.com.cn` |
-
-实际请求前缀示例（代码生成，无需配置）：
-
+```json
+{
+  "mcpServers": {
+    "youhuo-c-api": {
+      "url": "https://mcp-server.hopped.com.cn/c/mcp",
+      "transportType": "streamable-http",
+      "disabled": false
+    }
+  }
+}
 ```
-https://hopped-gateway-service-sops.hopped.com.cn/hopped-applet-service/api/
-```
-## 本地安装（stdio）
+
+1. 重启 MCP 或重载配置，确认 Server 已连接
+2. 调用 `create_auth_session` 获取小程序码与 `session_id`
+3. 用户微信扫码登录有活小程序
+4. 轮询 `check_auth_status` 直至 `authorized`
+5. 搭配 Skill：`job-seeker`（见 [skills/README.md](https://github.com/hoppedtech/youhuo/blob/main/skills/README.md)）
+
+容器重启或会话过期后需重新扫码授权。
+
+### 本地安装（stdio）
+
+适用于**本地开发或调试**。需克隆仓库、安装依赖并配置 `YOUHUO_BASE_URL`（见下文「环境变量」）。
 
 ```json
 {
@@ -90,42 +95,11 @@ https://hopped-gateway-service-sops.hopped.com.cn/hopped-applet-service/api/
 
 依赖：`pip install -r marketplace/youhuo-c-api/requirements.txt`
 
-## 远程 MCP（Hosted / 腾讯云 MCP 广场）
+## 环境变量（仅本地 stdio）
 
-### 构建镜像
-
-在 `mcp-servers/` 根目录执行：
-
-```bash
-docker build -f marketplace/youhuo-c-api/Dockerfile -t youhuo-c-api-mcp:1.0.0 .
-```
-
-镜像通过 `@cloudbase/mcp-transformer` 将 stdio 转为 HTTP，监听 **80** 端口。
-
-### 云托管环境变量（生产示例）
-
-```env
-YOUHUO_BASE_URL=https://hopped-gateway-service-sops.hopped.com.cn
-```
-
-镜像已内置 `YOUHUO_REQUIRE_BASE_URL=1`：未注入生产网关时容器拒绝启动。可选路径变量见上文「授权与会话」。
-
-### IDE 配置（SSE）
-
-在 [MCP 广场](https://cloud.tencent.com/document/product/1212/123193) 连接 Server 后，将生成的 SSE URL 填入客户端，例如 CodeBuddy：
-
-```json
-{
-  "mcpServers": {
-    "youhuo-c-api": {
-      "type": "sse",
-      "url": "https://mcp-api.tencent-cloud.com/sse/<your-token>"
-    }
-  }
-}
-```
-
-[☁️ CloudBase 云开发 MCP 部署](https://tcb.cloud.tencent.com/dev#/ai?tab=mcp)
+| 环境 | `YOUHUO_BASE_URL` |
+|:---|:---|
+| **生产** | `https://hopped-gateway-service-sops.hopped.com.cn` |
 
 ## 安全说明
 
@@ -133,18 +107,7 @@ YOUHUO_BASE_URL=https://hopped-gateway-service-sops.hopped.com.cn
 - **P2 低危写操作**（`update_work_preferences`、`manage_resume`（upload/generate/delete）、候补类）仅需 `user_confirmed=true`
 - **提现**：Agent 不代用户提现；查询余额后引导至有活小程序「我的 → 钱包 → 提现」
 - 手机号、姓名等隐私字段脱敏展示
-- Token 仅通过用户本人微信扫码获取，请勿泄露 SSE URL 或会话信息
-- 报名前建议调用 `check_apply_readiness(job_id)` 检查权限与资料
-
-| 变量 | 说明 |
-|:---|:---|
-| `YOUHUO_MCP_CONFIRM_TOKEN_REQUIRED` | 两阶段 token 开关，默认 `true` |
-| `YOUHUO_MCP_WRITE_ENABLED` | 写操作总开关，默认 `true` |
-
-## 后端依赖
-
-- 有活小程序网关 `hopped-applet-service`
-- 扫码授权：`Login/GetTokenBySession` 及小程序 `minilogin` 会话缓存
+- Token 仅通过用户本人微信扫码获取，请勿泄露 MCP 连接地址或会话信息
 
 ## 开源协议
 
